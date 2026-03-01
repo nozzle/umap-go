@@ -181,12 +181,17 @@ func processNewOldCandidates(heap *Heap, newCands, oldCands *Heap, data [][]floa
 //
 // For n < 4096: brute-force pairwise distances.
 // For n >= 4096: NN-Descent.
-func NearestNeighbors(data [][]float64, k int, distFunc distance.Func, rng umaprand.Source, angular bool) ([][]int, [][]float64) {
+func NearestNeighbors(data [][]float64, k int, distFunc distance.Func, rng umaprand.Source, angular bool) *SearchIndex {
 	n := len(data)
 
 	if n < 4096 {
 		indices, distances := BruteForceKNN(data, k, distFunc)
-		return indices, distances
+		idx := NewSearchIndex(data, indices, nil, distFunc, rng)
+		// Brute force does not populate forest, but we can store distances inside SearchIndex if we want,
+		// or just rely on a new field. We'll store distances in SearchIndex just in case.
+		idx.Distances = distances
+		idx.isBruteForce = true
+		return idx
 	}
 
 	cfg := NNDescentConfig{
@@ -195,7 +200,19 @@ func NearestNeighbors(data [][]float64, k int, distFunc distance.Func, rng umapr
 		Angular: angular,
 	}
 	result := NNDescent(data, distFunc, cfg)
-	return result.Indices, result.Distances
+	
+	// Create hub tree for search index
+	searchRngState := makeTauRandState(rng)
+	searchLeafSize := cfg.K
+	if searchLeafSize < 30 {
+		searchLeafSize = 30
+	}
+	hubTree := MakeHubTree(data, result.Indices, searchLeafSize, &searchRngState, angular, 200)
+	searchForest := RPForest{hubTree}
+
+	idx := NewSearchIndex(data, result.Indices, searchForest, distFunc, rng)
+	idx.Distances = result.Distances
+	return idx
 }
 
 // ---------------------------------------------------------------------------

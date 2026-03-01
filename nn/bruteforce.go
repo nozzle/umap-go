@@ -164,3 +164,46 @@ func InitFromRandom(h *Heap, n, k int, distFunc distance.Func, data [][]float64,
 
 	return h
 }
+
+// BruteForceKNNQuery computes exact k-nearest neighbors for query data
+// against the training data using brute-force.
+func BruteForceKNNQuery(trainData [][]float64, queryData [][]float64, k int, distFunc distance.Func) ([][]int, [][]float64) {
+	nTrain := len(trainData)
+	nQuery := len(queryData)
+	
+	if k > nTrain {
+		k = nTrain
+	}
+
+	indices := make([][]int, nQuery)
+	distances := make([][]float64, nQuery)
+
+	for i, q := range queryData {
+		dists := make([]struct {
+			idx  int
+			dist float64
+		}, nTrain)
+
+		for j, t := range trainData {
+			dists[j].idx = j
+			dists[j].dist = distFunc(q, t)
+		}
+
+		sort.Slice(dists, func(a, b int) bool {
+			// stable sort to match python argpartition/argsort
+			if dists[a].dist == dists[b].dist {
+				return dists[a].idx < dists[b].idx
+			}
+			return dists[a].dist < dists[b].dist
+		})
+
+		indices[i] = make([]int, k)
+		distances[i] = make([]float64, k)
+		for j := 0; j < k; j++ {
+			indices[i][j] = dists[j].idx
+			distances[i][j] = dists[j].dist
+		}
+	}
+
+	return indices, distances
+}

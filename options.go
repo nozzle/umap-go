@@ -61,6 +61,10 @@ type Options struct {
 	// 1.0 = pure union (default), 0.0 = pure intersection.
 	SetOpMixRatio float64
 
+	// DisconnectionDistance removes edges with distances greater than or equal to this value.
+	// Default: +inf (no disconnection).
+	DisconnectionDistance float64
+
 	// NegativeSampleRate controls the number of negative samples per
 	// positive sample in SGD optimization.
 	// Default: 5.
@@ -161,5 +165,8 @@ func (o *Options) applyDefaults() {
 	}
 	if o.TargetWeight < 0 {
 		o.TargetWeight = 0.5
+	}
+	if o.DisconnectionDistance == 0 {
+		o.DisconnectionDistance = 1e308
 	}
 }

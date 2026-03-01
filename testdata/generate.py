@@ -408,6 +408,36 @@ def record_pairwise_distances(outdir: str, datasets: dict):
 # ---------------------------------------------------------------------------
 
 
+def record_knn_nndescent(outdir: str, datasets: dict):
+    """Record NNDescent kNN for a dataset > 4096 samples."""
+    print("Stage 3.1: knn_nndescent")
+    # Generate 4100 random points so it trips the > 4096 logic
+    rs = RandomState(42)
+    X = rs.rand(4100, 10)
+    n_neighbors = 15
+
+    knn_indices, knn_dists, _ = umap_mod.nearest_neighbors(
+        X,
+        n_neighbors=n_neighbors,
+        metric="euclidean",
+        metric_kwds={},
+        angular=False,
+        random_state=RandomState(42),
+        n_jobs=1,  # Force sequential to keep PRNG deterministic!
+    )
+
+    save_json(
+        os.path.join(outdir, "knn_nndescent", "euclidean.json"),
+        {
+            "X": to_list(X),
+            "n_neighbors": n_neighbors,
+            "metric": "euclidean",
+            "knn_indices": to_list(knn_indices),
+            "knn_dists": to_list(knn_dists),
+        },
+    )
+
+
 def record_knn_brute(outdir: str, datasets: dict):
     """Record brute-force kNN for the small dataset."""
     print("Stage 3: knn_brute_force")
@@ -816,6 +846,7 @@ def main():
     record_find_ab_params(outdir)
     record_pairwise_distances(outdir, datasets)
     record_knn_brute(outdir, datasets)
+    record_knn_nndescent(outdir, datasets)
     record_smooth_knn_dist(outdir, datasets)
     record_fuzzy_simplicial_set(outdir, datasets)
     record_epochs_per_sample(outdir, datasets)

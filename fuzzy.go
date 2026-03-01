@@ -186,9 +186,10 @@ func ComputeMembershipStrengths(knnIndices [][]int, knnDists [][]float64,
 
 // FuzzySimplicialSetResult holds the output of FuzzySimplicialSet.
 type FuzzySimplicialSetResult struct {
-	Graph  *sparse.CSR // the symmetrized fuzzy simplicial set graph
-	Sigmas []float64   // per-point sigma values
-	Rhos   []float64   // per-point rho values
+	Graph       *sparse.CSR     // the symmetrized fuzzy simplicial set graph
+	Sigmas      []float64       // per-point sigma values
+	Rhos        []float64       // per-point rho values
+	SearchIndex *nn.SearchIndex // the nearest neighbor search index
 }
 
 // FuzzySimplicialSet constructs the fuzzy simplicial set from raw data.
@@ -230,7 +231,9 @@ func FuzzySimplicialSet(
 	angular := metric == "cosine" || metric == "correlation"
 
 	// Step 1: Compute kNN
-	knnIndices, knnDists := nn.NearestNeighbors(data, nNeighbors, distFunc, rng, angular)
+	searchIndex := nn.NearestNeighbors(data, nNeighbors, distFunc, rng, angular)
+	knnIndices := searchIndex.Indices
+	knnDists := searchIndex.Distances
 
 	// Step 2: Smooth kNN distances
 	smooth := SmoothKNNDist(knnDists, float64(nNeighbors), localConnectivity)
@@ -252,8 +255,44 @@ func FuzzySimplicialSet(
 	graph = graph.Eliminate(0)
 
 	return &FuzzySimplicialSetResult{
-		Graph:  graph,
-		Sigmas: smooth.Sigmas,
-		Rhos:   smooth.Rhos,
+		Graph:       graph,
+		Sigmas:      smooth.Sigmas,
+		Rhos:        smooth.Rhos,
+		SearchIndex: searchIndex,
 	}
+}
+
+// ComputeMembershipStrengthsBipartite is like ComputeMembershipStrengths but for out-of-sample mapping.
+// It creates a bipartite graph of shape (nQueries x nTrain).
+func ComputeMembershipStrengthsBipartite(knnIndices [][]int, knnDists [][]float64,
+	sigmas, rhos []float64, nQueries, nTrain int) *sparse.COO {
+
+	nNeighbors := len(knnIndices[0])
+	coo := sparse.NewCOO(nQueries, nTrain)
+
+	for i := range nQueries {
+		for j := range nNeighbors {
+			idx := knnIndices[i][j]
+			if idx < 0 {
+				continue
+			}
+
+			d := knnDists[i][j]
+			var val float64
+
+			if d-rhos[i] <= 0 || sigmas[i] == 0 {
+				val = 1.0
+			} else {
+				val = math.Exp(-(d - rhos[i]) / sigmas[i])
+			}
+
+			if val < 1e-300 {
+				val = 1e-300
+			}
+
+			coo.Set(i, idx, val)
+		}
+	}
+
+	return coo
 }

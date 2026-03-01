@@ -22,6 +22,7 @@ type OptimizeLayoutConfig struct {
 	InitialAlpha       float64 // initial learning rate (default: 1.0)
 	NegativeSampleRate float64 // negative samples per positive (default: 5.0)
 	NEpochs            int     // number of optimization epochs
+	MoveOther          bool    // update both head and tail embeddings
 }
 
 // OptimizeLayoutEuclidean performs SGD optimization of the embedding layout.

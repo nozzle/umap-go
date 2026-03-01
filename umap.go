@@ -24,8 +24,7 @@ type UMAP struct {
 
 	// Data retained for transform
 	rawData    [][]float64
-	knnIndices [][]int
-	knnDists   [][]float64
+	knnSearchIndex *nn.SearchIndex
 
 	fitted bool
 }
@@ -71,6 +70,8 @@ func (u *UMAP) FitTransform(X [][]float64, y []float64) ([][]float64, error) {
 		u.opts.SetOpMixRatio,
 	)
 	u.graph = result.Graph
+	u.knnSearchIndex = result.SearchIndex
+	u.rawData = X
 
 	// Step 3: Supervised mode — intersect with target graph
 	if y != nil && len(y) == n {
@@ -135,8 +136,6 @@ func (u *UMAP) FitTransform(X [][]float64, y []float64) ([][]float64, error) {
 
 // Transform projects new data into the existing embedding space.
 // The model must be fitted first.
-//
-// TODO: Full implementation with kNN search into training data.
 func (u *UMAP) Transform(XNew [][]float64) ([][]float64, error) {
 	if !u.fitted {
 		return nil, fmt.Errorf("umap: model not fitted; call Fit or FitTransform first")
@@ -145,12 +144,105 @@ func (u *UMAP) Transform(XNew [][]float64) ([][]float64, error) {
 		return nil, fmt.Errorf("umap: empty input data")
 	}
 
-	// TODO: Implement full transform:
-	// 1. Find kNN from XNew into training data
-	// 2. Build membership strengths
-	// 3. Initialize from weighted average of training embedding
-	// 4. SGD optimize with training embedding frozen
-	return nil, fmt.Errorf("umap: Transform not yet implemented")
+	nNew := len(XNew)
+	nTrain := len(u.rawData)
+
+	// 1. Query kNN
+	epsilon := 0.12
+	if u.opts.Metric == "cosine" || u.opts.Metric == "correlation" {
+		epsilon = 0.24
+	}
+
+	indices, dists := u.knnSearchIndex.Query(XNew, u.opts.NNeighbors, epsilon)
+
+	// Apply disconnection distance
+	for i := range indices {
+		for j := range indices[i] {
+			if dists[i][j] >= u.opts.DisconnectionDistance {
+				indices[i][j] = -1
+			}
+		}
+	}
+
+	// 2. Smooth kNN distances
+	adjustedLocalConnectivity := math.Max(0.0, u.opts.LocalConnectivity-1.0)
+	smooth := SmoothKNNDist(dists, float64(u.opts.NNeighbors), adjustedLocalConnectivity)
+
+	// 3. Compute membership strengths
+	coo := ComputeMembershipStrengthsBipartite(indices, dists, smooth.Sigmas, smooth.Rhos, nNew, nTrain)
+	csr := coo.ToCSR()
+	csr = csr.Eliminate(0)
+
+	// 4. Initialize embedding from graph
+	embedding := initGraphTransform(csr, u.embedding)
+
+	// 5. Optimize Layout
+	nEpochs := u.opts.NEpochs
+	if nEpochs == 0 {
+		if nNew <= 10000 {
+			nEpochs = 100
+		} else {
+			nEpochs = 30
+		}
+	} else {
+		nEpochs = nEpochs / 3
+	}
+
+	// Prune low weight edges
+	var prunedRows, prunedCols []int
+	var prunedData []float64
+	maxWeight := 0.0
+	for _, w := range coo.Data {
+		if w > maxWeight {
+			maxWeight = w
+		}
+	}
+	threshold := maxWeight / float64(nEpochs)
+
+	for i, w := range coo.Data {
+		if w >= threshold {
+			prunedRows = append(prunedRows, coo.Row[i])
+			prunedCols = append(prunedCols, coo.Col[i])
+			prunedData = append(prunedData, w)
+		}
+	}
+
+	epochsPerSample := MakeEpochsPerSample(prunedData, nEpochs)
+
+	var head, tail []int
+	var activeEPS []float64
+	for i, eps := range epochsPerSample {
+		if eps > 0 {
+			head = append(head, prunedRows[i])
+			tail = append(tail, prunedCols[i])
+			activeEPS = append(activeEPS, eps)
+		}
+	}
+
+	rngStates := make([]nn.TauRandState, len(head))
+	for i := range rngStates {
+		s := u.opts.RandSource.Intn(math.MaxInt32)
+		rngStates[i] = nn.TauRandState{int64(s), int64(s + 1), int64(s + 2)}
+	}
+
+	cfg := OptimizeLayoutConfig{
+		A:                  u.a,
+		B:                  u.b,
+		Gamma:              u.opts.RepulsionStrength,
+		InitialAlpha:       u.opts.LearningRate,
+		NegativeSampleRate: u.opts.NegativeSampleRate,
+		NEpochs:            nEpochs,
+	}
+
+	embedding = OptimizeLayoutEuclidean(
+		embedding, u.embedding,
+		head, tail,
+		activeEPS,
+		rngStates,
+		cfg,
+	)
+
+	return embedding, nil
 }
 
 // InverseTransform maps points from the embedding space back to data space.
@@ -272,4 +364,47 @@ func graphToEdges(graph *sparse.CSR) *edgeList {
 	}
 
 	return &edgeList{rows: rows, cols: cols, weights: weights}
+}
+
+func initGraphTransform(graph *sparse.CSR, trainingEmbedding [][]float64) [][]float64 {
+	nNew := graph.Rows
+	dim := len(trainingEmbedding[0])
+	result := make([][]float64, nNew)
+
+	for i := 0; i < nNew; i++ {
+		result[i] = make([]float64, dim)
+		start := graph.Indptr[i]
+		end := graph.Indptr[i+1]
+
+		if start == end {
+			// No neighbors, python emits np.nan, we just use 0.0 or could use NaNs
+			// Go float64 defaults to 0.0. To strictly match, we could use math.NaN()
+			for d := 0; d < dim; d++ {
+				result[i][d] = math.NaN()
+			}
+			continue
+		}
+
+		var rowSum float64
+		for j := start; j < end; j++ {
+			rowSum += graph.Data[j]
+		}
+
+		for j := start; j < end; j++ {
+			val := graph.Data[j]
+			col := graph.Indices[j]
+
+			if val == 1.0 {
+				copy(result[i], trainingEmbedding[col])
+				break
+			}
+			
+			weight := val / rowSum
+			for d := 0; d < dim; d++ {
+				result[i][d] += weight * trainingEmbedding[col][d]
+			}
+		}
+	}
+
+	return result
 }
