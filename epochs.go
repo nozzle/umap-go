@@ -8,8 +8,6 @@ package umap
 //
 // Corresponds to umap_.py make_epochs_per_sample().
 
-import "math"
-
 // MakeEpochsPerSample computes the number of epochs between samples
 // for each edge weight.
 //
@@ -106,13 +104,4 @@ func Rdist(x, y []float64) float64 {
 		sum += d * d
 	}
 	return sum
-}
-
-// min/max helpers for float64
-func minF(a, b float64) float64 {
-	return math.Min(a, b)
-}
-
-func maxF(a, b float64) float64 {
-	return math.Max(a, b)
 }

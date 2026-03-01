@@ -54,7 +54,11 @@ func TestUMAP_TransformParity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open python output: %v", err)
 	}
-	defer f.Close()
+	defer func() {
+		if closeErr := f.Close(); closeErr != nil {
+			t.Errorf("failed to close python output: %v", closeErr)
+		}
+	}()
 
 	r := csv.NewReader(f)
 	records, err := r.ReadAll()

@@ -477,43 +477,6 @@ func extractSubgraph(graph *sparse.CSR, indices []int) *sparse.CSR {
 	return coo.ToCSR()
 }
 
-// normalizeEmbedding centers and scales the embedding to a reasonable range.
-func normalizeEmbedding(embedding [][]float64) {
-	n := len(embedding)
-	if n == 0 {
-		return
-	}
-	nComponents := len(embedding[0])
-
-	// Expand coordinates by a small random amount to break ties
-	expansion := 10.0 / math.Sqrt(float64(n))
-
-	for d := range nComponents {
-		// Find range
-		minVal := math.Inf(1)
-		maxVal := math.Inf(-1)
-		for i := range n {
-			v := embedding[i][d]
-			if v < minVal {
-				minVal = v
-			}
-			if v > maxVal {
-				maxVal = v
-			}
-		}
-
-		rng := maxVal - minVal
-		if rng == 0 {
-			rng = 1
-		}
-
-		// Center and scale
-		for i := range n {
-			embedding[i][d] = expansion * (embedding[i][d] - minVal) / rng
-		}
-	}
-}
-
 // randomInit generates a random initial embedding.
 func randomInit(n, nComponents int) [][]float64 {
 	embedding := make([][]float64, n)

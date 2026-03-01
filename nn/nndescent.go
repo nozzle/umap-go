@@ -220,19 +220,6 @@ func maxInt(a, b int) int {
 	return b
 }
 
-func ilog2(n int) int {
-	if n <= 1 {
-		return 0
-	}
-	r := 0
-	v := n
-	for v > 1 {
-		v >>= 1
-		r++
-	}
-	return r
-}
-
 func defaultNTrees(n int) int {
 	// Matches UMAP default: min(64, 5 + int(round((n^0.5)/20.0)))
 	import_math := 5 + int(0.5+sqrt(float64(n))/20.0)
@@ -240,13 +227,6 @@ func defaultNTrees(n int) int {
 		return 64
 	}
 	return import_math
-}
-
-func pow25(n int) float64 {
-	// n^0.25
-	x := float64(n)
-	x = sqrt(sqrt(x))
-	return x
 }
 
 func sqrt(x float64) float64 {

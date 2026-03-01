@@ -57,7 +57,7 @@ func HellingerGrad(x, y []float64) (float64, []float64) {
 
 	distDenom := sqrtNormProd
 	gradDenom := 2 * dist
-	gradNumerConst := (l1Y * product) / (2 * math.Pow(distDenom, 3))
+	gradNumerConst := (l1Y * product) / (2 * distDenom * distDenom * distDenom)
 
 	for i := range x {
 		gradTerm := math.Sqrt(x[i] * y[i])

@@ -66,37 +66,6 @@ func assertSliceApprox(t *testing.T, name string, got, want []float64, tol float
 	}
 }
 
-// assertMatrixApprox checks that two 2D float64 slices match within tolerance.
-func assertMatrixApprox(t *testing.T, name string, got, want [][]float64, tol float64) {
-	t.Helper()
-	if len(got) != len(want) {
-		t.Fatalf("%s: row count mismatch: got %d, want %d", name, len(got), len(want))
-	}
-	for i := range got {
-		if len(got[i]) != len(want[i]) {
-			t.Fatalf("%s[%d]: col count mismatch: got %d, want %d", name, i, len(got[i]), len(want[i]))
-		}
-		for j := range got[i] {
-			if !approxEqual(got[i][j], want[i][j], tol) {
-				t.Errorf("%s[%d][%d]: got %v, want %v (tol=%v)", name, i, j, got[i][j], want[i][j], tol)
-			}
-		}
-	}
-}
-
-// assertIntSlice checks that two int slices are identical.
-func assertIntSlice(t *testing.T, name string, got, want []int) {
-	t.Helper()
-	if len(got) != len(want) {
-		t.Fatalf("%s: length mismatch: got %d, want %d", name, len(got), len(want))
-	}
-	for i := range got {
-		if got[i] != want[i] {
-			t.Errorf("%s[%d]: got %d, want %d", name, i, got[i], want[i])
-		}
-	}
-}
-
 // maxAbsDiff returns the maximum absolute difference between two matrices.
 func maxAbsDiff(a, b [][]float64) float64 {
 	maxD := 0.0
@@ -133,15 +102,6 @@ func float64sToInts(f []float64) []int {
 	result := make([]int, len(f))
 	for i, v := range f {
 		result[i] = int(v)
-	}
-	return result
-}
-
-// float64sToInts2D converts [][]float64 to [][]int.
-func float64sToInts2D(f [][]float64) [][]int {
-	result := make([][]int, len(f))
-	for i, row := range f {
-		result[i] = float64sToInts(row)
 	}
 	return result
 }
