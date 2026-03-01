@@ -1,0 +1,13 @@
+version: 2
+updates:
+  # Go modules
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+
+  # Python pip
+  - package-ecosystem: "pip"
+    directory: "/testdata/python/"
+    schedule:
+      interval: "monthly"
