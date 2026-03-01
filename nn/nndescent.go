@@ -4,6 +4,8 @@ import (
 	"github.com/nozzle/umap-go/distance"
 	umaprand "github.com/nozzle/umap-go/rand"
 	"math"
+	"runtime"
+	"sync"
 )
 
 // NNDescentConfig holds the configuration for NN-Descent.
@@ -18,6 +20,8 @@ type NNDescentConfig struct {
 	LowMemory     bool            // use low-memory mode (default: true)
 	Rng           umaprand.Source // random source for RP-tree construction
 	Verbose       bool
+	NWorkers      int
+	ParallelMode  string
 }
 
 // NNDescentResult holds the output of NN-Descent.
@@ -57,6 +61,12 @@ func NNDescent(data [][]float64, distFunc distance.Func, cfg NNDescentConfig) *N
 	if cfg.NTrees <= 0 {
 		cfg.NTrees = defaultNTrees(n)
 	}
+	if cfg.NWorkers <= 0 {
+		cfg.NWorkers = runtime.GOMAXPROCS(0)
+	}
+	if cfg.ParallelMode == "" {
+		cfg.ParallelMode = "serial"
+	}
 
 	// Step 1: Initialize RNG states
 	rngState := makeTauRandState(cfg.Rng)
@@ -89,8 +99,8 @@ func NNDescent(data [][]float64, distFunc distance.Func, cfg NNDescentConfig) *N
 		newCands, oldCands := heap.BuildCandidates(cfg.MaxCandidates, &searchRngState)
 
 		updates := 0
-		updates += processNewCandidates(heap, newCands, data, distFunc)
-		updates += processNewOldCandidates(heap, newCands, oldCands, data, distFunc)
+		updates += processNewCandidates(heap, newCands, data, distFunc, cfg.NWorkers, cfg.ParallelMode)
+		updates += processNewOldCandidates(heap, newCands, oldCands, data, distFunc, cfg.NWorkers, cfg.ParallelMode)
 
 		if cfg.Verbose {
 			_ = iter // suppress unused warning in non-verbose mode
@@ -113,7 +123,18 @@ func NNDescent(data [][]float64, distFunc distance.Func, cfg NNDescentConfig) *N
 
 // processNewCandidates processes all pairs of new candidates.
 // For each point, compare all pairs of its new candidate neighbors.
-func processNewCandidates(heap *Heap, newCands *Heap, data [][]float64, distFunc distance.Func) int {
+func processNewCandidates(
+	heap *Heap,
+	newCands *Heap,
+	data [][]float64,
+	distFunc distance.Func,
+	nWorkers int,
+	parallelMode string,
+) int {
+	if shouldParallelCandidateEval(parallelMode, nWorkers, newCands.N) {
+		return processNewCandidatesParallel(heap, newCands, data, distFunc, nWorkers)
+	}
+
 	updates := 0
 
 	for i := range newCands.N {
@@ -143,7 +164,18 @@ func processNewCandidates(heap *Heap, newCands *Heap, data [][]float64, distFunc
 }
 
 // processNewOldCandidates processes pairs of (new, old) candidates.
-func processNewOldCandidates(heap *Heap, newCands, oldCands *Heap, data [][]float64, distFunc distance.Func) int {
+func processNewOldCandidates(
+	heap *Heap,
+	newCands, oldCands *Heap,
+	data [][]float64,
+	distFunc distance.Func,
+	nWorkers int,
+	parallelMode string,
+) int {
+	if shouldParallelCandidateEval(parallelMode, nWorkers, newCands.N) {
+		return processNewOldCandidatesParallel(heap, newCands, oldCands, data, distFunc, nWorkers)
+	}
+
 	updates := 0
 
 	for i := range newCands.N {
@@ -172,6 +204,187 @@ func processNewOldCandidates(heap *Heap, newCands, oldCands *Heap, data [][]floa
 	return updates
 }
 
+type candidatePair struct {
+	p int
+	q int
+	d float64
+}
+
+func shouldParallelCandidateEval(mode string, nWorkers, nRows int) bool {
+	if nWorkers <= 1 || nRows <= 1 {
+		return false
+	}
+	switch mode {
+	case "parallel", "auto":
+		return true
+	default:
+		return false
+	}
+}
+
+func processNewCandidatesParallel(
+	heap *Heap,
+	newCands *Heap,
+	data [][]float64,
+	distFunc distance.Func,
+	nWorkers int,
+) int {
+	type rowResult struct {
+		row   int
+		pairs []candidatePair
+	}
+
+	rowCount := newCands.N
+	workerCount := minInt(nWorkers, rowCount)
+	jobs := make(chan int, workerCount)
+	results := make(chan rowResult, workerCount)
+
+	var wg sync.WaitGroup
+	for range workerCount {
+		wg.Go(func() {
+			for i := range jobs {
+				pairs := make([]candidatePair, 0, newCands.K)
+				for j := 0; j < newCands.K; j++ {
+					p := newCands.Indices[i][j]
+					if p < 0 {
+						continue
+					}
+					for k := j + 1; k < newCands.K; k++ {
+						q := newCands.Indices[i][k]
+						if q < 0 {
+							continue
+						}
+						pairs = append(pairs, candidatePair{
+							p: p,
+							q: q,
+							d: distFunc(data[p], data[q]),
+						})
+					}
+				}
+				results <- rowResult{row: i, pairs: pairs}
+			}
+		})
+	}
+
+	go func() {
+		for i := range rowCount {
+			jobs <- i
+		}
+		close(jobs)
+	}()
+
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	updates := 0
+	nextRow := 0
+	pending := make(map[int][]candidatePair, workerCount)
+	for res := range results {
+		pending[res.row] = res.pairs
+		for {
+			pairs, ok := pending[nextRow]
+			if !ok {
+				break
+			}
+			updates += applyCandidatePairs(heap, pairs)
+			delete(pending, nextRow)
+			nextRow++
+		}
+	}
+
+	return updates
+}
+
+func processNewOldCandidatesParallel(
+	heap *Heap,
+	newCands, oldCands *Heap,
+	data [][]float64,
+	distFunc distance.Func,
+	nWorkers int,
+) int {
+	type rowResult struct {
+		row   int
+		pairs []candidatePair
+	}
+
+	rowCount := newCands.N
+	workerCount := minInt(nWorkers, rowCount)
+	jobs := make(chan int, workerCount)
+	results := make(chan rowResult, workerCount)
+
+	var wg sync.WaitGroup
+	for range workerCount {
+		wg.Go(func() {
+			for i := range jobs {
+				pairs := make([]candidatePair, 0, newCands.K)
+				for j := 0; j < newCands.K; j++ {
+					p := newCands.Indices[i][j]
+					if p < 0 {
+						continue
+					}
+					for k := 0; k < oldCands.K; k++ {
+						q := oldCands.Indices[i][k]
+						if q < 0 || p == q {
+							continue
+						}
+						pairs = append(pairs, candidatePair{
+							p: p,
+							q: q,
+							d: distFunc(data[p], data[q]),
+						})
+					}
+				}
+				results <- rowResult{row: i, pairs: pairs}
+			}
+		})
+	}
+
+	go func() {
+		for i := range rowCount {
+			jobs <- i
+		}
+		close(jobs)
+	}()
+
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	updates := 0
+	nextRow := 0
+	pending := make(map[int][]candidatePair, workerCount)
+	for res := range results {
+		pending[res.row] = res.pairs
+		for {
+			pairs, ok := pending[nextRow]
+			if !ok {
+				break
+			}
+			updates += applyCandidatePairs(heap, pairs)
+			delete(pending, nextRow)
+			nextRow++
+		}
+	}
+
+	return updates
+}
+
+func applyCandidatePairs(heap *Heap, pairs []candidatePair) int {
+	updates := 0
+	for _, pair := range pairs {
+		if heap.Push(pair.p, pair.q, pair.d, true) {
+			updates++
+		}
+		if heap.Push(pair.q, pair.p, pair.d, true) {
+			updates++
+		}
+	}
+	return updates
+}
+
 // NearestNeighbors computes nearest neighbors, choosing brute-force or
 // NN-Descent based on dataset size. This matches the dispatch logic in
 // umap_.py nearest_neighbors().
@@ -179,6 +392,18 @@ func processNewOldCandidates(heap *Heap, newCands, oldCands *Heap, data [][]floa
 // For n < 4096: brute-force pairwise distances.
 // For n >= 4096: NN-Descent.
 func NearestNeighbors(data [][]float64, k int, distFunc distance.Func, rng umaprand.Source, angular bool) *SearchIndex {
+	return NearestNeighborsWithConfig(data, k, distFunc, rng, angular, NNDescentConfig{})
+}
+
+// NearestNeighborsWithConfig computes nearest neighbors with NN-Descent controls.
+func NearestNeighborsWithConfig(
+	data [][]float64,
+	k int,
+	distFunc distance.Func,
+	rng umaprand.Source,
+	angular bool,
+	cfg NNDescentConfig,
+) *SearchIndex {
 	n := len(data)
 
 	if n < 4096 {
@@ -191,11 +416,9 @@ func NearestNeighbors(data [][]float64, k int, distFunc distance.Func, rng umapr
 		return idx
 	}
 
-	cfg := NNDescentConfig{
-		K:       k,
-		Rng:     rng,
-		Angular: angular,
-	}
+	cfg.K = k
+	cfg.Rng = rng
+	cfg.Angular = angular
 	result := NNDescent(data, distFunc, cfg)
 
 	// Create hub tree for search index

@@ -109,17 +109,37 @@ if err != nil {
 _ = newEmbedding
 ```
 
+## Parallel execution
+
+The library can use multiple CPU cores for parallel-capable stages.
+
+- `Options.NWorkers`: number of workers (default: `runtime.GOMAXPROCS(0)`)
+- `Options.ParallelMode`:
+  - `"auto"` (default): use deterministic parallel paths where available
+  - `"serial"`: force single-thread behavior
+  - `"parallel"`: favor throughput for parallel-capable paths
+
+Example:
+
+```go
+opts := umap.DefaultOptions()
+opts.NWorkers = runtime.GOMAXPROCS(0) // auto CPU count
+opts.ParallelMode = "auto"
+```
+
 ## Python vs Go FitTransform benchmark
 
 This repository includes a benchmark comparison for `FitTransform`:
 
 - Python runner: `testdata/benchmark_fit_transform.py` (`umap-learn==0.5.11`)
 - Go benchmark: `BenchmarkFitTransformCompare`
+- Parallel-mode benchmark: `BenchmarkFitTransformParallelModes`
 
 Run from repository root:
 
 ```bash
 go test -run '^$' -bench BenchmarkFitTransformCompare -benchmem .
+go test -run '^$' -bench BenchmarkFitTransformParallelModes -benchmem .
 ```
 
 When Python tooling is available (`uv` or `python3` with `testdata` dependencies),

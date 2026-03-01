@@ -7,6 +7,7 @@ package umap
 import (
 	"fmt"
 	"math"
+	"runtime"
 
 	"github.com/nozzle/umap-go/distance"
 	umaprand "github.com/nozzle/umap-go/rand"
@@ -101,6 +102,15 @@ type Options struct {
 	// Verbose controls whether progress information is printed.
 	Verbose bool
 
+	// NWorkers controls the number of worker goroutines used by parallel-capable stages.
+	// If 0, runtime.GOMAXPROCS(0) is used.
+	// Default: runtime.GOMAXPROCS(0).
+	NWorkers int
+
+	// ParallelMode controls how parallel-capable stages execute.
+	// "auto" (default), "serial", or "parallel".
+	ParallelMode string
+
 	// TODO: DensMAP parameters (dens_lambda, dens_frac, dens_var_shift)
 	// TODO: Disconnection distance
 	// TODO: Output metric / output metric kwds
@@ -126,6 +136,8 @@ func DefaultOptions() Options {
 		TargetNNeighbors:   15,
 		TargetMetric:       "categorical",
 		TargetWeight:       0.5,
+		NWorkers:           runtime.GOMAXPROCS(0),
+		ParallelMode:       "auto",
 	}
 }
 
@@ -176,6 +188,12 @@ func (o *Options) applyDefaults() {
 	if o.TargetWeight < 0 {
 		o.TargetWeight = 0.5
 	}
+	if o.NWorkers == 0 {
+		o.NWorkers = runtime.GOMAXPROCS(0)
+	}
+	if o.ParallelMode == "" {
+		o.ParallelMode = "auto"
+	}
 	if o.DisconnectionDistance == 0 {
 		o.DisconnectionDistance = 1e308
 	}
@@ -222,6 +240,14 @@ func (o Options) validate() error {
 	}
 	if o.LearningRate <= 0 {
 		return fmt.Errorf("umap: invalid LearningRate %g: must be > 0", o.LearningRate)
+	}
+	if o.NWorkers < 1 {
+		return fmt.Errorf("umap: invalid NWorkers %d: must be >= 1", o.NWorkers)
+	}
+	switch o.ParallelMode {
+	case "serial", "parallel", "auto":
+	default:
+		return fmt.Errorf("umap: invalid ParallelMode %q: must be one of auto, serial, parallel", o.ParallelMode)
 	}
 	if o.TargetNNeighbors < 2 {
 		return fmt.Errorf("umap: invalid TargetNNeighbors %d: must be >= 2", o.TargetNNeighbors)

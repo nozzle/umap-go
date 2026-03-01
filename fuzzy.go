@@ -10,6 +10,7 @@ package umap
 
 import (
 	"math"
+	"runtime"
 
 	"github.com/nozzle/umap-go/distance"
 	"github.com/nozzle/umap-go/nn"
@@ -192,6 +193,12 @@ type FuzzySimplicialSetResult struct {
 	SearchIndex *nn.SearchIndex // the nearest neighbor search index
 }
 
+// FuzzySimplicialSetConfig holds internal execution controls.
+type FuzzySimplicialSetConfig struct {
+	NWorkers    int
+	ParallelMode string
+}
+
 // FuzzySimplicialSet constructs the fuzzy simplicial set from raw data.
 // This is the main graph construction pipeline:
 //
@@ -211,7 +218,29 @@ func FuzzySimplicialSet(
 	localConnectivity float64,
 	setOpMixRatio float64,
 ) *FuzzySimplicialSetResult {
+	return FuzzySimplicialSetWithConfig(
+		data, nNeighbors, rng, metric, metricKwds, localConnectivity, setOpMixRatio, FuzzySimplicialSetConfig{},
+	)
+}
+
+// FuzzySimplicialSetWithConfig constructs the fuzzy simplicial set with execution config.
+func FuzzySimplicialSetWithConfig(
+	data [][]float64,
+	nNeighbors int,
+	rng umaprand.Source,
+	metric string,
+	metricKwds map[string]any,
+	localConnectivity float64,
+	setOpMixRatio float64,
+	cfg FuzzySimplicialSetConfig,
+) *FuzzySimplicialSetResult {
 	n := len(data)
+	if cfg.NWorkers <= 0 {
+		cfg.NWorkers = runtime.GOMAXPROCS(0)
+	}
+	if cfg.ParallelMode == "" {
+		cfg.ParallelMode = "serial"
+	}
 
 	// Get distance function
 	distFunc := distance.Named(metric)
@@ -241,7 +270,13 @@ func FuzzySimplicialSet(
 	angular := metric == "cosine" || metric == "correlation"
 
 	// Step 1: Compute kNN
-	searchIndex := nn.NearestNeighbors(data, nNeighbors, distFunc, rng, angular)
+	searchIndex := nn.NearestNeighborsWithConfig(
+		data, nNeighbors, distFunc, rng, angular,
+		nn.NNDescentConfig{
+			NWorkers:    cfg.NWorkers,
+			ParallelMode: cfg.ParallelMode,
+		},
+	)
 	knnIndices := searchIndex.Indices
 	knnDists := searchIndex.Distances
 

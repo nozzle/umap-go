@@ -3,6 +3,7 @@ package umap
 // umap_test.go tests the full end-to-end UMAP pipeline.
 
 import (
+	"runtime"
 	"strings"
 	"testing"
 
@@ -208,6 +209,23 @@ func TestDefaultOptions(t *testing.T) {
 	if opts.TargetWeight != 0.5 {
 		t.Errorf("TargetWeight: got %v, want 0.5", opts.TargetWeight)
 	}
+	if opts.NWorkers != runtime.GOMAXPROCS(0) {
+		t.Errorf("NWorkers: got %d, want %d", opts.NWorkers, runtime.GOMAXPROCS(0))
+	}
+	if opts.ParallelMode != "auto" {
+		t.Errorf("ParallelMode: got %q, want %q", opts.ParallelMode, "auto")
+	}
+}
+
+func TestOptions_ParallelApplyDefaults(t *testing.T) {
+	opts := Options{}
+	opts.applyDefaults()
+	if opts.NWorkers != runtime.GOMAXPROCS(0) {
+		t.Fatalf("NWorkers default: got %d, want %d", opts.NWorkers, runtime.GOMAXPROCS(0))
+	}
+	if opts.ParallelMode != "auto" {
+		t.Fatalf("ParallelMode default: got %q, want %q", opts.ParallelMode, "auto")
+	}
 }
 
 func TestUMAP_SupervisedUsesTargetNNeighbors(t *testing.T) {
@@ -317,6 +335,20 @@ func TestUMAP_InvalidOptions(t *testing.T) {
 				opts.TargetMetric = "ordinal"
 			},
 			error: "invalid TargetMetric",
+		},
+		{
+			name: "invalid n workers",
+			mut: func(opts *Options) {
+				opts.NWorkers = -1
+			},
+			error: "invalid NWorkers",
+		},
+		{
+			name: "invalid parallel mode",
+			mut: func(opts *Options) {
+				opts.ParallelMode = "threads"
+			},
+			error: "invalid ParallelMode",
 		},
 	}
 

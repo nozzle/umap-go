@@ -3,6 +3,7 @@ package umap
 // layout_test.go tests the SGD layout optimization against Python reference data.
 
 import (
+	"math"
 	"testing"
 
 	"github.com/nozzle/umap-go/nn"
@@ -114,4 +115,154 @@ func TestOptimizeLayoutEuclidean(t *testing.T) {
 	rmse := rmseDiff(result, td.Embedding)
 	maxD := maxAbsDiff(result, td.Embedding)
 	t.Logf("vs Python reference: RMSE=%.6f, maxDiff=%.6f", rmse, maxD)
+}
+
+func TestOptimizeLayoutEuclidean_SerialIgnoresWorkers(t *testing.T) {
+	init, head, tail, eps, rngStates, cfg := layoutTestInputs()
+	cfg.ParallelMode = "serial"
+
+	cfg.NWorkers = 1
+	embeddingA := cloneLayoutEmbedding(init)
+	gotA := OptimizeLayoutEuclidean(
+		embeddingA, embeddingA,
+		head, tail,
+		eps,
+		cloneTauStates(rngStates),
+		cfg,
+	)
+
+	cfg.NWorkers = 4
+	embeddingB := cloneLayoutEmbedding(init)
+	gotB := OptimizeLayoutEuclidean(
+		embeddingB, embeddingB,
+		head, tail,
+		eps,
+		cloneTauStates(rngStates),
+		cfg,
+	)
+
+	if !embeddingEqualExact(gotA, gotB) {
+		t.Fatal("serial mode result changed with worker count")
+	}
+}
+
+func TestOptimizeLayoutEuclidean_AutoModeDeterministic(t *testing.T) {
+	init, head, tail, eps, rngStates, cfg := layoutTestInputs()
+	cfg.ParallelMode = "auto"
+	cfg.NWorkers = 4
+
+	embeddingA := cloneLayoutEmbedding(init)
+	gotA := OptimizeLayoutEuclidean(
+		embeddingA, embeddingA,
+		head, tail,
+		eps,
+		cloneTauStates(rngStates),
+		cfg,
+	)
+
+	embeddingB := cloneLayoutEmbedding(init)
+	gotB := OptimizeLayoutEuclidean(
+		embeddingB, embeddingB,
+		head, tail,
+		eps,
+		cloneTauStates(rngStates),
+		cfg,
+	)
+
+	if !embeddingEqualExact(gotA, gotB) {
+		t.Fatal("auto mode should be deterministic for fixed seed/state")
+	}
+}
+
+func TestOptimizeLayoutEuclidean_ParallelModeFinite(t *testing.T) {
+	init, head, tail, eps, rngStates, cfg := layoutTestInputs()
+	cfg.ParallelMode = "parallel"
+	cfg.NWorkers = 4
+
+	embedding := cloneLayoutEmbedding(init)
+	got := OptimizeLayoutEuclidean(
+		embedding, embedding,
+		head, tail,
+		eps,
+		cloneTauStates(rngStates),
+		cfg,
+	)
+
+	if embeddingEqualExact(got, init) {
+		t.Fatal("parallel mode produced unchanged embedding")
+	}
+	for i := range got {
+		for d := range got[i] {
+			if math.IsNaN(got[i][d]) || math.IsInf(got[i][d], 0) {
+				t.Fatalf("non-finite value at [%d][%d]", i, d)
+			}
+		}
+	}
+}
+
+func layoutTestInputs() ([][]float64, []int, []int, []float64, []nn.TauRandState, OptimizeLayoutConfig) {
+	init := [][]float64{
+		{0.0, 0.0},
+		{1.0, 0.0},
+		{0.0, 1.0},
+		{1.0, 1.0},
+		{2.0, 0.0},
+		{0.0, 2.0},
+	}
+
+	head := []int{0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5}
+	tail := []int{1, 2, 3, 4, 5, 0, 2, 3, 4, 5, 0, 1}
+	epochsPerSample := make([]float64, len(head))
+	for i := range epochsPerSample {
+		epochsPerSample[i] = 1.0
+	}
+
+	rngStates := make([]nn.TauRandState, len(head))
+	for i := range rngStates {
+		base := int64(7 + i*3)
+		rngStates[i] = nn.TauRandState{base, base + 1, base + 2}
+	}
+
+	cfg := OptimizeLayoutConfig{
+		A:                  1.5769,
+		B:                  0.8951,
+		Gamma:              1.0,
+		InitialAlpha:       1.0,
+		NegativeSampleRate: 3.0,
+		NEpochs:            20,
+	}
+
+	return init, head, tail, epochsPerSample, rngStates, cfg
+}
+
+func cloneLayoutEmbedding(in [][]float64) [][]float64 {
+	out := make([][]float64, len(in))
+	for i := range in {
+		out[i] = make([]float64, len(in[i]))
+		copy(out[i], in[i])
+	}
+	return out
+}
+
+func cloneTauStates(in []nn.TauRandState) []nn.TauRandState {
+	out := make([]nn.TauRandState, len(in))
+	copy(out, in)
+	return out
+}
+
+func embeddingEqualExact(a, b [][]float64) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if len(a[i]) != len(b[i]) {
+			return false
+		}
+		for j := range a[i] {
+			if a[i][j] != b[i][j] {
+				return false
+			}
+		}
+	}
+	return true
 }

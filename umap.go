@@ -63,7 +63,7 @@ func (u *UMAP) FitTransform(X [][]float64, y []float64) ([][]float64, error) {
 	u.a, u.b = FindABParams(u.opts.Spread, u.opts.MinDist)
 
 	// Step 2: Construct fuzzy simplicial set
-	result := FuzzySimplicialSet(
+	result := FuzzySimplicialSetWithConfig(
 		X,
 		u.opts.NNeighbors,
 		u.opts.RandSource,
@@ -71,6 +71,10 @@ func (u *UMAP) FitTransform(X [][]float64, y []float64) ([][]float64, error) {
 		u.opts.MetricKwds,
 		u.opts.LocalConnectivity,
 		u.opts.SetOpMixRatio,
+		FuzzySimplicialSetConfig{
+			NWorkers:    u.opts.NWorkers,
+			ParallelMode: u.opts.ParallelMode,
+		},
 	)
 	u.graph = result.Graph
 	u.knnSearchIndex = result.SearchIndex
@@ -121,6 +125,8 @@ func (u *UMAP) FitTransform(X [][]float64, y []float64) ([][]float64, error) {
 		InitialAlpha:       u.opts.LearningRate,
 		NegativeSampleRate: u.opts.NegativeSampleRate,
 		NEpochs:            nEpochs,
+		NWorkers:           u.opts.NWorkers,
+		ParallelMode:       u.opts.ParallelMode,
 	}
 
 	embedding = OptimizeLayoutEuclidean(
@@ -235,6 +241,8 @@ func (u *UMAP) Transform(XNew [][]float64) ([][]float64, error) {
 		InitialAlpha:       u.opts.LearningRate,
 		NegativeSampleRate: u.opts.NegativeSampleRate,
 		NEpochs:            nEpochs,
+		NWorkers:           u.opts.NWorkers,
+		ParallelMode:       u.opts.ParallelMode,
 	}
 
 	embedding = OptimizeLayoutEuclidean(
@@ -329,7 +337,7 @@ func (u *UMAP) applySupervisedGraph(y []float64) {
 		targetData[i] = []float64{y[i]}
 	}
 
-	targetResult := FuzzySimplicialSet(
+	targetResult := FuzzySimplicialSetWithConfig(
 		targetData,
 		u.opts.TargetNNeighbors,
 		u.opts.RandSource,
@@ -337,6 +345,10 @@ func (u *UMAP) applySupervisedGraph(y []float64) {
 		nil,
 		u.opts.LocalConnectivity,
 		u.opts.SetOpMixRatio,
+		FuzzySimplicialSetConfig{
+			NWorkers:    u.opts.NWorkers,
+			ParallelMode: u.opts.ParallelMode,
+		},
 	)
 	targetGraph := targetResult.Graph
 

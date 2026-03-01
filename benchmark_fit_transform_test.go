@@ -103,7 +103,6 @@ func BenchmarkFitTransformCompare(b *testing.B) {
 	}
 
 	for _, tc := range benchmarkCases() {
-		tc := tc
 		b.Run(tc.Name, func(b *testing.B) {
 			X := benchmarkData(tc.NSamples, tc.NFeatures, tc.Seed)
 
@@ -138,6 +137,39 @@ func BenchmarkFitTransformCompare(b *testing.B) {
 			b.ReportMetric(goNSPerOp, "go_ns/op")
 			if hasPython && goNSPerOp > 0 {
 				b.ReportMetric(pyNSPerOp/goNSPerOp, "py/go")
+			}
+		})
+	}
+}
+
+// BenchmarkFitTransformParallelModes compares serial vs auto parallel execution
+// for the same FitTransform workload.
+func BenchmarkFitTransformParallelModes(b *testing.B) {
+	tc := benchmarkCases()[0]
+	X := benchmarkData(tc.NSamples, tc.NFeatures, tc.Seed)
+
+	for _, mode := range []string{"serial", "auto"} {
+		b.Run(mode, func(b *testing.B) {
+			opts := DefaultOptions()
+			opts.NNeighbors = tc.NNeighbors
+			opts.NComponents = tc.NComponents
+			opts.NEpochs = tc.NEpochs
+			opts.MinDist = 0.1
+			opts.Spread = 1.0
+			opts.ParallelMode = mode
+			if mode == "serial" {
+				opts.NWorkers = 1
+			}
+
+			b.ReportAllocs()
+			b.ResetTimer()
+			for range b.N {
+				seed := tc.Seed
+				opts.RandSource = umaprand.NewProduction(&seed)
+				model := New(opts)
+				if _, err := model.FitTransform(X, nil); err != nil {
+					b.Fatalf("FitTransform failed: %v", err)
+				}
 			}
 		})
 	}
