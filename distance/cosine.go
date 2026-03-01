@@ -113,12 +113,10 @@ func CorrelationGrad(x, y []float64) (float64, []float64) {
 	}
 
 	dist := 1.0 - dot/math.Sqrt(normX*normY)
-	sqNormX := math.Sqrt(normX)
 	for i := range x {
 		dx := x[i] - muX
 		dy := y[i] - muY
-		grad[i] = ((dx/sqNormX - dy/dot) * dist)
-		_ = dy // used above
+		grad[i] = (dx/normX - dy/dot) * dist
 	}
 	return dist, grad
 }

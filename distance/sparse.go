@@ -216,42 +216,52 @@ func SparseSokalSneath(ind1 []int, data1 []float64, ind2 []int, data2 []float64)
 // SparseLLDirichlet computes the log-likelihood Dirichlet distance for sparse vectors.
 // Corresponds to sparse.py sparse_ll_dirichlet().
 func SparseLLDirichlet(ind1 []int, data1 []float64, ind2 []int, data2 []float64) float64 {
-	n1 := float64(len(ind1))
-	n2 := float64(len(ind2))
-	if n1 == 0 || n2 == 0 {
-		return 0
+	n1 := 0.0
+	for _, v := range data1 {
+		n1 += v
+	}
+	n2 := 0.0
+	for _, v := range data2 {
+		n2 += v
+	}
+	if n1 == 0 && n2 == 0 {
+		return 0.0
+	} else if n1 == 0 || n2 == 0 {
+		return 1e8
 	}
 
-	logBetaXY := 0.0
-	selfDenom1 := 0.0
-	selfDenom2 := 0.0
-
-	sparseMerge(ind1, data1, ind2, data2, func(v1, v2 float64) {
-		if v1 > 0 && v2 > 0 {
-			logBetaXY += approxLogGamma(v1) + approxLogGamma(v2) - approxLogGamma(v1+v2)
-			selfDenom1 += 2*approxLogGamma(v1) - approxLogGamma(2*v1)
-			selfDenom2 += 2*approxLogGamma(v2) - approxLogGamma(2*v2)
-		} else if v1 > 0 {
-			logBetaXY += approxLogGamma(v1)
-			selfDenom1 += 2*approxLogGamma(v1) - approxLogGamma(2*v1)
-		} else if v2 > 0 {
-			logBetaXY += approxLogGamma(v2)
-			selfDenom2 += 2*approxLogGamma(v2) - approxLogGamma(2*v2)
+	logB := 0.0
+	i1, i2 := 0, 0
+	for i1 < len(ind1) && i2 < len(ind2) {
+		j1, j2 := ind1[i1], ind2[i2]
+		if j1 == j2 {
+			if data1[i1]*data2[i2] != 0 {
+				logB += logBeta(data1[i1], data2[i2])
+			}
+			i1++
+			i2++
+		} else if j1 < j2 {
+			i1++
+		} else {
+			i2++
 		}
-	})
+	}
 
-	logBetaN1N2 := n1*(approxLogGamma(n2/n1)+approxLogGamma(n2/n1)) - n1*approxLogGamma(2*n2/n1)
-	logBetaN2N1 := n2*(approxLogGamma(n1/n2)+approxLogGamma(n1/n2)) - n2*approxLogGamma(2*n1/n2)
-	logSingleBetaN1 := n1 * (2*approxLogGamma(1) - approxLogGamma(2))
-	logSingleBetaN2 := n2 * (2*approxLogGamma(1) - approxLogGamma(2))
+	selfDenom1 := 0.0
+	for _, d1 := range data1 {
+		selfDenom1 += logSingleBeta(d1)
+	}
 
-	term1 := (1 / n2) * (logBetaXY - logBetaN1N2 - (selfDenom2 - logSingleBetaN2))
-	term2 := (1 / n1) * (logBetaXY - logBetaN2N1 - (selfDenom1 - logSingleBetaN1))
+	selfDenom2 := 0.0
+	for _, d2 := range data2 {
+		selfDenom2 += logSingleBeta(d2)
+	}
+
+	term1 := (1.0 / n2) * (logB - logBeta(n1, n2) - (selfDenom2 - logSingleBeta(n2)))
+	term2 := (1.0 / n1) * (logB - logBeta(n2, n1) - (selfDenom1 - logSingleBeta(n1)))
 
 	val := term1 + term2
-	if val < 0 {
-		val = 0
-	}
+	// Python does not cap to 0. It lets math.Sqrt return NaN for negative values.
 	return math.Sqrt(val)
 }
 
@@ -309,7 +319,7 @@ func SparseKulsinski(ind1 []int, data1 []float64, ind2 []int, data2 []float64, n
 			nne++
 		}
 	})
-	if nne+n == 0 {
+	if nne == 0 {
 		return 0
 	}
 	return float64(nne-ntt+n) / float64(nne+n)
@@ -339,12 +349,23 @@ func SparseRussellRao(ind1 []int, data1 []float64, ind2 []int, data2 []float64, 
 	if n == 0 {
 		return 0
 	}
-	var ntt int
+	var ntt, nx, ny int
 	sparseMerge(ind1, data1, ind2, data2, func(v1, v2 float64) {
-		if v1 != 0 && v2 != 0 {
+		xb := v1 != 0
+		yb := v2 != 0
+		if xb && yb {
 			ntt++
 		}
+		if xb {
+			nx++
+		}
+		if yb {
+			ny++
+		}
 	})
+	if ntt == nx && ntt == ny {
+		return 0
+	}
 	return float64(n-ntt) / float64(n)
 }
 

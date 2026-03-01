@@ -40,12 +40,15 @@ func HaversineGrad(x, y []float64) (float64, []float64) {
 	dist := 2.0 * math.Asin(math.Sqrt(a))
 
 	grad := make([]float64, 2)
-	denom := math.Sqrt(a) * math.Sqrt(1-a)
-	if denom < 1e-6 {
-		denom = 1e-6
-	}
-	grad[0] = (math.Sin(xLat-yLat) - math.Sin(xLat)*cosYLat*sinLon*sinLon) / denom
-	grad[1] = cosXLat * cosYLat * math.Sin(x[1]-y[1]) / denom
+	denom := math.Sqrt(math.Abs(a-1)) * math.Sqrt(math.Abs(a))
+
+	sinLatHalf := math.Sin(0.5 * (x[0] - y[0]))
+	cosLatHalf := math.Cos(0.5 * (x[0] - y[0]))
+	sinLonHalf := math.Sin(0.5 * (x[1] - y[1]))
+	cosLonHalf := math.Cos(0.5 * (x[1] - y[1]))
+
+	grad[0] = (sinLatHalf*cosLatHalf - math.Sin(xLat)*cosYLat*sinLonHalf*sinLonHalf) / (denom + 1e-6)
+	grad[1] = (cosXLat * cosYLat * sinLonHalf * cosLonHalf) / (denom + 1e-6)
 
 	return dist, grad
 }
@@ -81,7 +84,7 @@ func HyperboloidGrad(x, y []float64) (float64, []float64) {
 	s := math.Sqrt(1 + sqNormX)
 	t := math.Sqrt(1 + sqNormY)
 	b := s*t - dot
-	if b < 1+1e-8 {
+	if b <= 1 {
 		b = 1 + 1e-8
 	}
 

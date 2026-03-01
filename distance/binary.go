@@ -87,7 +87,7 @@ func Kulsinski(x, y []float64) float64 {
 			nne++
 		}
 	}
-	if nne+n == 0 {
+	if nne == 0 {
 		return 0
 	}
 	return float64(nne-ntt+n) / float64(nne+n)
@@ -113,11 +113,22 @@ func RussellRao(x, y []float64) float64 {
 	if n == 0 {
 		return 0
 	}
-	var ntt int
+	var ntt, nx, ny int
 	for i := range x {
-		if x[i] != 0 && y[i] != 0 {
+		xb := x[i] != 0
+		yb := y[i] != 0
+		if xb && yb {
 			ntt++
 		}
+		if xb {
+			nx++
+		}
+		if yb {
+			ny++
+		}
+	}
+	if ntt == nx && ntt == ny {
+		return 0
 	}
 	return float64(n-ntt) / float64(n)
 }

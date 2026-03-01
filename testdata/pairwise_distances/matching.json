@@ -1,5 +1,5 @@
 {
-  "metric": "hamming",
+  "metric": "matching",
   "X": [
     [
       0.0,

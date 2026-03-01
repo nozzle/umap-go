@@ -55,9 +55,19 @@ func HellingerGrad(x, y []float64) (float64, []float64) {
 		return dist, grad
 	}
 
+	distDenom := sqrtNormProd
+	gradDenom := 2 * dist
+	gradNumerConst := (l1Y * product) / (2 * math.Pow(distDenom, 3))
+
 	for i := range x {
-		sqrtXY := math.Sqrt(x[i]*y[i]) + 1e-6
-		grad[i] = (0.5*y[i]/sqrtXY/sqrtNormProd - 0.5*product/(l1X*sqrtNormProd)) / (2.0 * dist)
+		gradTerm := math.Sqrt(x[i] * y[i])
+		// UMAP-learn has y / grad_term * dist_denom which evaluates to (y / grad_term) * dist_denom
+		// and it handles division by zero by numpy conventions (or fastmath).
+		// We'll avoid actual div by 0 by adding 1e-6 to gradTerm if it's 0.
+		if gradTerm < 1e-8 {
+			gradTerm = 1e-8
+		}
+		grad[i] = (gradNumerConst - (y[i] / gradTerm * distDenom)) / gradDenom
 	}
 	return dist, grad
 }
@@ -99,25 +109,36 @@ func SymmetricKL(x, y []float64, params map[string]interface{}) float64 {
 // LLDirichlet computes the log-likelihood Dirichlet distance.
 // Corresponds to distances.py ll_dirichlet().
 func LLDirichlet(x, y []float64, params map[string]interface{}) float64 {
-	n1 := float64(len(x))
-	n2 := float64(len(y))
-
-	logBetaXY := 0.0
-	selfDenom1 := 0.0
-	selfDenom2 := 0.0
-	for i := range x {
-		logBetaXY += approxLogGamma(x[i]) + approxLogGamma(y[i]) - approxLogGamma(x[i]+y[i])
-		selfDenom1 += 2*approxLogGamma(x[i]) - approxLogGamma(2*x[i])
-		selfDenom2 += 2*approxLogGamma(y[i]) - approxLogGamma(2*y[i])
+	n1 := 0.0
+	n2 := 0.0
+	for _, v := range x {
+		n1 += v
+	}
+	for _, v := range y {
+		n2 += v
 	}
 
-	logBetaN1N2 := n1*(approxLogGamma(n2/n1)+approxLogGamma(n2/n1)) - n1*approxLogGamma(2*n2/n1)
-	logBetaN2N1 := n2*(approxLogGamma(n1/n2)+approxLogGamma(n1/n2)) - n2*approxLogGamma(2*n1/n2)
-	logSingleBetaN1 := n1 * (2*approxLogGamma(1) - approxLogGamma(2))
-	logSingleBetaN2 := n2 * (2*approxLogGamma(1) - approxLogGamma(2))
+	logB := 0.0
+	selfDenom1 := 0.0
+	selfDenom2 := 0.0
 
-	term1 := (1 / n2) * (logBetaXY - logBetaN1N2 - (selfDenom2 - logSingleBetaN2))
-	term2 := (1 / n1) * (logBetaXY - logBetaN2N1 - (selfDenom1 - logSingleBetaN1))
+	for i := range x {
+		if x[i]*y[i] > 0.9 {
+			logB += logBeta(x[i], y[i])
+			selfDenom1 += logSingleBeta(x[i])
+			selfDenom2 += logSingleBeta(y[i])
+		} else {
+			if x[i] > 0.9 {
+				selfDenom1 += logSingleBeta(x[i])
+			}
+			if y[i] > 0.9 {
+				selfDenom2 += logSingleBeta(y[i])
+			}
+		}
+	}
+
+	term1 := (1.0 / n2) * (logB - logBeta(n1, n2) - (selfDenom2 - logSingleBeta(n2)))
+	term2 := (1.0 / n1) * (logB - logBeta(n2, n1) - (selfDenom1 - logSingleBeta(n1)))
 
 	val := term1 + term2
 	if val < 0 {
@@ -126,18 +147,29 @@ func LLDirichlet(x, y []float64, params map[string]interface{}) float64 {
 	return math.Sqrt(val)
 }
 
-// approxLogGamma approximates log(Gamma(x)) using Stirling's approximation
-// for large x and math.Lgamma for small x.
+func logBeta(x, y float64) float64 {
+	a := math.Min(x, y)
+	b := math.Max(x, y)
+	if b < 5 {
+		value := -math.Log(b)
+		for i := 1; i < int(a); i++ {
+			value += math.Log(float64(i)) - math.Log(b+float64(i))
+		}
+		return value
+	}
+	return approxLogGamma(x) + approxLogGamma(y) - approxLogGamma(x+y)
+}
+
+func logSingleBeta(x float64) float64 {
+	return math.Log(2.0)*(-2.0*x+0.5) + 0.5*math.Log(2.0*math.Pi/x) + 0.125/x
+}
+
+// approxLogGamma approximates log(Gamma(x)) using Stirling's approximation.
 // Corresponds to distances.py approx_log_Gamma().
 func approxLogGamma(x float64) float64 {
-	if x <= 0 {
+	if x == 1 {
 		return 0
 	}
-	if x < 20 {
-		v, _ := math.Lgamma(x)
-		return v
-	}
-	// Stirling's approximation
-	return x*math.Log(x) - x + 0.5*math.Log(2*math.Pi/x) +
-		1.0/(12*x) - 1.0/(360*x*x*x)
+	// Stirling's approximation as used in Python UMAP
+	return x*math.Log(x) - x + 0.5*math.Log(2*math.Pi/x) + 1.0/(12.0*x)
 }

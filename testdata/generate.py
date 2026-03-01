@@ -36,9 +36,14 @@ import umap.umap_ as umap_mod
 def to_list(arr):
     """Convert numpy arrays to JSON-serializable lists."""
     if isinstance(arr, np.ndarray):
+        if np.issubdtype(arr.dtype, np.floating):
+            arr = np.nan_to_num(arr, nan=-99999.99, posinf=99999.99, neginf=-99999.99)
         return arr.tolist()
     if hasattr(arr, "toarray"):
-        return arr.toarray().tolist()
+        arr = arr.toarray()
+        if np.issubdtype(arr.dtype, np.floating):
+            arr = np.nan_to_num(arr, nan=-99999.99, posinf=99999.99, neginf=-99999.99)
+        return arr.tolist()
     return arr
 
 
@@ -96,6 +101,30 @@ def load_datasets() -> dict[str, dict]:
         "description": "Small blobs (30x5, for brute-force kNN)",
     }
 
+    # Data for specific distance metrics
+    rs = RandomState(42)
+    datasets["binary"] = {
+        "X": rs.randint(2, size=(20, 10)).astype(np.float64),
+        "description": "Binary data for jaccard, hamming, etc.",
+    }
+
+    probs = rs.rand(20, 5).astype(np.float64)
+    probs = probs / probs.sum(axis=1, keepdims=True)
+    datasets["probs"] = {
+        "X": probs,
+        "description": "Probability distributions for hellinger, etc.",
+    }
+
+    datasets["2d"] = {
+        "X": rs.uniform(-np.pi / 2, np.pi / 2, size=(20, 2)).astype(np.float64),
+        "description": "2D data for haversine",
+    }
+
+    datasets["sparse"] = {
+        "X": (rs.rand(20, 10) > 0.7).astype(np.float64),
+        "description": "Sparse data",
+    }
+
     return datasets
 
 
@@ -135,32 +164,243 @@ def record_find_ab_params(outdir: str):
 def record_pairwise_distances(outdir: str, datasets: dict):
     """Record brute-force pairwise distances for the small dataset."""
     print("Stage 2: pairwise_distances")
-    X = datasets["small"]["X"]
-    n = X.shape[0]
 
-    for metric_name in [
+    # 1. Standard metrics
+    metrics = [
         "euclidean",
+        "l2",
         "manhattan",
-        "cosine",
+        "taxicab",
+        "l1",
         "chebyshev",
+        "linfinity",
+        "linfty",
+        "linf",
         "canberra",
         "braycurtis",
-        "hamming",
+        "cosine",
+        "correlation",
+        "poincare",
+        "hellinger",
+        "haversine",
+        "ll_dirichlet",
+        "symmetric_kl",
         "jaccard",
-    ]:
+        "dice",
+        "hamming",
+        "matching",
+        "kulsinski",
+        "rogerstanimoto",
+        "russellrao",
+        "sokalsneath",
+        "sokalmichener",
+        "yule",
+    ]
+
+    for metric_name in metrics:
+        if metric_name in [
+            "jaccard",
+            "dice",
+            "hamming",
+            "matching",
+            "kulsinski",
+            "rogerstanimoto",
+            "russellrao",
+            "sokalsneath",
+            "sokalmichener",
+            "yule",
+        ]:
+            ds = "binary"
+        elif metric_name in ["hellinger", "ll_dirichlet", "symmetric_kl"]:
+            ds = "probs"
+        elif metric_name == "haversine":
+            ds = "2d"
+        elif metric_name == "poincare":
+            # Poincare needs values strictly inside the unit disk
+            X_poincare = datasets["small"]["X"].copy()
+            norms = np.linalg.norm(X_poincare, axis=1, keepdims=True)
+            X_poincare = X_poincare / (norms + 1.0)  # Ensure norm < 1
+            datasets["poincare"] = {"X": X_poincare * 0.9}
+            ds = "poincare"
+        else:
+            ds = "small"
+
+        X = datasets[ds]["X"]
+        n = X.shape[0]
         fn = dist.named_distances[metric_name]
         D = np.zeros((n, n))
-        for i in range(n):
-            for j in range(n):
-                D[i, j] = fn(X[i], X[j])
-        save_json(
-            os.path.join(outdir, "pairwise_distances", f"{metric_name}.json"),
-            {
-                "metric": metric_name,
-                "X": to_list(X),
-                "distances": to_list(D),
-            },
-        )
+
+        try:
+            for i in range(n):
+                for j in range(n):
+                    D[i, j] = fn(X[i], X[j])
+
+            save_json(
+                os.path.join(outdir, "pairwise_distances", f"{metric_name}.json"),
+                {
+                    "metric": metric_name,
+                    "X": to_list(X),
+                    "distances": to_list(D),
+                },
+            )
+        except Exception as e:
+            print(f"  Failed metric {metric_name}: {e}")
+
+    # 2. Gradient metrics
+    print("Stage 2.1: pairwise_gradients")
+    grad_metrics = [
+        "euclidean",
+        "l2",
+        "manhattan",
+        "taxicab",
+        "l1",
+        "chebyshev",
+        "linfinity",
+        "linfty",
+        "linf",
+        "cosine",
+        "correlation",
+        "canberra",
+        "braycurtis",
+        "hellinger",
+        "haversine",
+        "hyperboloid",
+    ]
+
+    for metric_name in grad_metrics:
+        if metric_name == "hellinger":
+            ds = "probs"
+        elif metric_name == "haversine":
+            ds = "2d"
+        elif metric_name == "hyperboloid":
+            # Hyperboloid needs points in hyperbolic space (z > 0, -t0^2 + x1^2 +... = -1)
+            # UMAP's hyperboloid dist treats the first coordinate as the t0.
+            # We'll generate simple valid points by using a standard dataset and augmenting it.
+            # Actually, let's just create points where x0 = sqrt(1 + sum(xi^2)).
+            X_hyp = datasets["small"]["X"].copy()
+            x0 = np.sqrt(1.0 + np.sum(X_hyp**2, axis=1)).reshape(-1, 1)
+            X_hyp = np.hstack([x0, X_hyp])
+            datasets["hyperboloid"] = {"X": X_hyp}
+            ds = "hyperboloid"
+        else:
+            ds = "small"
+
+        X = datasets[ds]["X"]
+        n = min(10, X.shape[0])  # keep gradients smaller
+        X = X[:n]
+        fn = dist.named_distances_with_gradients[metric_name]
+
+        D = np.zeros((n, n))
+        grads = np.zeros((n, n, X.shape[1]))
+
+        try:
+            for i in range(n):
+                for j in range(n):
+                    d, grad = fn(X[i], X[j])
+                    D[i, j] = d
+                    grads[i, j] = grad
+
+            save_json(
+                os.path.join(outdir, "pairwise_gradients", f"{metric_name}.json"),
+                {
+                    "metric": metric_name,
+                    "X": to_list(X),
+                    "distances": to_list(D),
+                    "gradients": to_list(grads),
+                },
+            )
+        except Exception as e:
+            print(f"  Failed grad metric {metric_name}: {e}")
+
+    # 3. Sparse metrics
+    print("Stage 2.2: sparse_distances")
+    import umap.sparse as sparse
+
+    sparse_metrics = [
+        "euclidean",
+        "manhattan",
+        "taxicab",
+        "l1",
+        "chebyshev",
+        "linfinity",
+        "linfty",
+        "linf",
+        "canberra",
+        "braycurtis",
+        "cosine",
+        "correlation",
+        "hellinger",
+        "ll_dirichlet",
+        "jaccard",
+        "dice",
+        "hamming",
+        "matching",
+        "kulsinski",
+        "rogerstanimoto",
+        "russellrao",
+        "sokalsneath",
+        "sokalmichener",
+    ]
+
+    for metric_name in sparse_metrics:
+        if metric_name in [
+            "jaccard",
+            "dice",
+            "hamming",
+            "matching",
+            "kulsinski",
+            "rogerstanimoto",
+            "russellrao",
+            "sokalsneath",
+            "sokalmichener",
+        ]:
+            ds = "binary"
+        elif metric_name in ["hellinger", "ll_dirichlet"]:
+            ds = "probs"
+        else:
+            ds = "sparse"
+
+        X = datasets[ds]["X"]
+        X_sparse = csr_matrix(X)
+        n = X_sparse.shape[0]
+
+        fn = sparse.sparse_named_distances[metric_name]
+        D = np.zeros((n, n))
+
+        try:
+            for i in range(n):
+                for j in range(n):
+                    ind1 = X_sparse.indices[X_sparse.indptr[i] : X_sparse.indptr[i + 1]]
+                    data1 = X_sparse.data[X_sparse.indptr[i] : X_sparse.indptr[i + 1]]
+                    ind2 = X_sparse.indices[X_sparse.indptr[j] : X_sparse.indptr[j + 1]]
+                    data2 = X_sparse.data[X_sparse.indptr[j] : X_sparse.indptr[j + 1]]
+
+                    if metric_name in [
+                        "hamming",
+                        "matching",
+                        "kulsinski",
+                        "rogerstanimoto",
+                        "russellrao",
+                        "sokalmichener",
+                        "correlation",
+                    ]:
+                        D[i, j] = fn(ind1, data1, ind2, data2, X_sparse.shape[1])
+                    else:
+                        D[i, j] = fn(ind1, data1, ind2, data2)
+
+            save_json(
+                os.path.join(outdir, "sparse_distances", f"{metric_name}.json"),
+                {
+                    "metric": metric_name,
+                    "X_shape": list(X_sparse.shape),
+                    "X_indptr": to_list(X_sparse.indptr),
+                    "X_indices": to_list(X_sparse.indices),
+                    "X_data": to_list(X_sparse.data),
+                    "distances": to_list(D),
+                },
+            )
+        except Exception as e:
+            print(f"  Failed sparse metric {metric_name}: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -565,9 +805,9 @@ def main():
         save_json(
             os.path.join(outdir, "datasets", f"{name}.json"),
             {
-                "description": ds["description"],
+                "description": ds.get("description", ""),
                 "X": to_list(ds["X"]),
-                "y": to_list(ds["y"]),
+                "y": to_list(ds.get("y", [])),
                 "shape": list(ds["X"].shape),
             },
         )

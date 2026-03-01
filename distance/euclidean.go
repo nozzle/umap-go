@@ -124,14 +124,22 @@ func CanberraGrad(x, y []float64) (float64, []float64) {
 		if denom > 0 {
 			diff := math.Abs(x[i] - y[i])
 			dist += diff / denom
-			sign := 1.0
-			if x[i]-y[i] < 0 {
+
+			var sign float64
+			d := x[i] - y[i]
+			if d > 0 {
+				sign = 1.0
+			} else if d < 0 {
 				sign = -1.0
 			}
-			signX := 1.0
-			if x[i] < 0 {
+
+			var signX float64
+			if x[i] > 0 {
+				signX = 1.0
+			} else if x[i] < 0 {
 				signX = -1.0
 			}
+
 			grad[i] = sign/denom - diff*signX/(denom*denom)
 		}
 	}
@@ -165,10 +173,14 @@ func BrayCurtisGrad(x, y []float64) (float64, []float64) {
 	if denominator > 0 {
 		dist = numerator / denominator
 		for i := range x {
-			sign := 1.0
-			if x[i]-y[i] < 0 {
+			var sign float64
+			diff := x[i] - y[i]
+			if diff > 0 {
+				sign = 1.0
+			} else if diff < 0 {
 				sign = -1.0
 			}
+			// Note: umap-learn has this specific gradient calculation (which may assume x, y > 0)
 			grad[i] = (sign - dist) / denominator
 		}
 	}
