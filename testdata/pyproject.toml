@@ -1,0 +1,12 @@
+[project]
+name = "umap-go-testdata"
+version = "0.1.0"
+description = "Test data generator for umap-go: records Python UMAP intermediate outputs."
+requires-python = ">=3.11"
+dependencies = [
+    "umap-learn==0.5.11",
+    "scikit-learn>=1.4",
+    "numpy>=1.26",
+    "pynndescent>=0.5.11",
+    "scipy>=1.12",
+]

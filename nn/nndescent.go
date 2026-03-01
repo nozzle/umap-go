@@ -1,0 +1,247 @@
+package nn
+
+import (
+	"github.com/nozzle/umap-go/distance"
+	umaprand "github.com/nozzle/umap-go/rand"
+)
+
+// NNDescentConfig holds the configuration for NN-Descent.
+type NNDescentConfig struct {
+	K             int             // number of nearest neighbors
+	NTrees        int             // number of RP-trees (default: min(32, 5 + int(round(n^0.25))))
+	MaxCandidates int             // max candidates per iteration (default: min(60, K))
+	NIters        int             // max iterations (default: max(5, int(round(log2(n)))))
+	Delta         float64         // early stopping threshold (default: 0.001)
+	LeafSize      int             // RP-tree leaf size (default: max(10, K))
+	Angular       bool            // use angular RP-trees (for cosine-like metrics)
+	LowMemory     bool            // use low-memory mode (default: true)
+	Rng           umaprand.Source // random source for RP-tree construction
+	Verbose       bool
+}
+
+// NNDescentResult holds the output of NN-Descent.
+type NNDescentResult struct {
+	Indices   [][]int     // [n][k] neighbor indices
+	Distances [][]float64 // [n][k] neighbor distances
+	Forest    RPForest    // the RP-forest used for initialization
+}
+
+// NNDescent performs approximate nearest neighbor search using NN-Descent.
+// This matches the algorithm in pynndescent (v0.5.x).
+//
+// Algorithm:
+// 1. Build RP-forest for initial candidate generation
+// 2. Initialize heap from forest leaf co-occurrence
+// 3. Iterate: for each point, compare its neighbors' neighbors as candidates
+// 4. Stop when fewer than delta*n*k updates per iteration
+func NNDescent(data [][]float64, distFunc distance.Func, cfg NNDescentConfig) *NNDescentResult {
+	n := len(data)
+
+	// Set defaults
+	if cfg.K <= 0 {
+		cfg.K = 15
+	}
+	if cfg.MaxCandidates <= 0 {
+		cfg.MaxCandidates = cfg.K
+		if cfg.MaxCandidates > 60 {
+			cfg.MaxCandidates = 60
+		}
+	}
+	if cfg.NIters <= 0 {
+		cfg.NIters = maxInt(5, ilog2(n))
+	}
+	if cfg.Delta <= 0 {
+		cfg.Delta = 0.001
+	}
+	if cfg.LeafSize <= 0 {
+		cfg.LeafSize = maxInt(10, cfg.K)
+	}
+	if cfg.NTrees <= 0 {
+		cfg.NTrees = defaultNTrees(n)
+	}
+
+	// Step 1: Build RP-forest
+	var forest RPForest
+	if cfg.Rng != nil {
+		forest = MakeForest(data, cfg.NTrees, cfg.LeafSize, cfg.Rng, cfg.Angular)
+	}
+
+	// Step 2: Initialize heap
+	var heap *Heap
+	if forest != nil {
+		heap = InitFromForest(forest, data, cfg.K, distFunc)
+	} else {
+		// Fallback: random initialization
+		tauState := TauRandState{42, 13, 7}
+		heap = InitFromRandom(n, cfg.K, distFunc, data, &tauState)
+	}
+
+	// Step 3: NN-Descent iterations
+	tauState := TauRandState{42, 13, 7}
+	threshold := cfg.Delta * float64(cfg.K) * float64(n)
+
+	for iter := range cfg.NIters {
+		newCands, oldCands := heap.BuildCandidates(cfg.MaxCandidates, &tauState)
+
+		updates := 0
+		updates += processNewCandidates(heap, newCands, data, distFunc)
+		updates += processNewOldCandidates(heap, newCands, oldCands, data, distFunc)
+
+		if cfg.Verbose {
+			_ = iter // suppress unused warning in non-verbose mode
+		}
+
+		if float64(updates) < threshold {
+			break
+		}
+	}
+
+	// Step 4: Sort results
+	heap.Deheap()
+
+	return &NNDescentResult{
+		Indices:   heap.Indices,
+		Distances: heap.Distances,
+		Forest:    forest,
+	}
+}
+
+// processNewCandidates processes all pairs of new candidates.
+// For each point, compare all pairs of its new candidate neighbors.
+func processNewCandidates(heap *Heap, newCands *Heap, data [][]float64, distFunc distance.Func) int {
+	updates := 0
+
+	for i := range newCands.N {
+		for j := 0; j < newCands.K; j++ {
+			p := newCands.Indices[i][j]
+			if p < 0 {
+				continue
+			}
+			for k := j + 1; k < newCands.K; k++ {
+				q := newCands.Indices[i][k]
+				if q < 0 {
+					continue
+				}
+
+				d := distFunc(data[p], data[q])
+				if heap.Push(p, q, d, true) {
+					updates++
+				}
+				if heap.Push(q, p, d, true) {
+					updates++
+				}
+			}
+		}
+	}
+
+	return updates
+}
+
+// processNewOldCandidates processes pairs of (new, old) candidates.
+func processNewOldCandidates(heap *Heap, newCands, oldCands *Heap, data [][]float64, distFunc distance.Func) int {
+	updates := 0
+
+	for i := range newCands.N {
+		for j := 0; j < newCands.K; j++ {
+			p := newCands.Indices[i][j]
+			if p < 0 {
+				continue
+			}
+			for k := 0; k < oldCands.K; k++ {
+				q := oldCands.Indices[i][k]
+				if q < 0 || p == q {
+					continue
+				}
+
+				d := distFunc(data[p], data[q])
+				if heap.Push(p, q, d, true) {
+					updates++
+				}
+				if heap.Push(q, p, d, true) {
+					updates++
+				}
+			}
+		}
+	}
+
+	return updates
+}
+
+// NearestNeighbors computes nearest neighbors, choosing brute-force or
+// NN-Descent based on dataset size. This matches the dispatch logic in
+// umap_.py nearest_neighbors().
+//
+// For n < 4096: brute-force pairwise distances.
+// For n >= 4096: NN-Descent.
+func NearestNeighbors(data [][]float64, k int, distFunc distance.Func, rng umaprand.Source, angular bool) ([][]int, [][]float64) {
+	n := len(data)
+
+	if n < 4096 {
+		indices, distances := BruteForceKNN(data, k, distFunc)
+		return indices, distances
+	}
+
+	cfg := NNDescentConfig{
+		K:       k,
+		Rng:     rng,
+		Angular: angular,
+	}
+	result := NNDescent(data, distFunc, cfg)
+	return result.Indices, result.Distances
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func ilog2(n int) int {
+	if n <= 1 {
+		return 0
+	}
+	r := 0
+	v := n
+	for v > 1 {
+		v >>= 1
+		r++
+	}
+	return r
+}
+
+func defaultNTrees(n int) int {
+	// Matches pynndescent default: min(32, 5 + int(round(n^0.25)))
+	import_math := 5 + int(0.5+pow25(n))
+	if import_math > 32 {
+		return 32
+	}
+	return import_math
+}
+
+func pow25(n int) float64 {
+	// n^0.25
+	x := float64(n)
+	x = sqrt(sqrt(x))
+	return x
+}
+
+func sqrt(x float64) float64 {
+	if x <= 0 {
+		return 0
+	}
+	// Newton's method
+	z := x / 2
+	for i := 0; i < 100; i++ {
+		z2 := (z + x/z) / 2
+		if z2 == z {
+			break
+		}
+		z = z2
+	}
+	return z
+}
