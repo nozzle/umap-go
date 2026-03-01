@@ -109,6 +109,28 @@ if err != nil {
 _ = newEmbedding
 ```
 
+## Python vs Go FitTransform benchmark
+
+This repository includes a benchmark comparison for `FitTransform`:
+
+- Python runner: `testdata/benchmark_fit_transform.py` (`umap-learn==0.5.11`)
+- Go benchmark: `BenchmarkFitTransformCompare`
+
+Run from repository root:
+
+```bash
+go test -run '^$' -bench BenchmarkFitTransformCompare -benchmem .
+```
+
+When Python tooling is available (`uv` or `python3` with `testdata` dependencies),
+the Go benchmark reports extra metrics:
+
+- `py_ns/op`: Python mean nanoseconds per operation
+- `go_ns/op`: Go mean nanoseconds per operation
+- `py/go`: Python-to-Go time ratio
+
+If Python dependencies are unavailable, the benchmark still runs and reports Go-only metrics.
+
 ## License
 
 This project is licensed under the BSD 3-Clause License. See [LICENSE](./LICENSE).
