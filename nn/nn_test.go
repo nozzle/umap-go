@@ -19,6 +19,20 @@ type knnBruteData struct {
 	KNNDists   [][]float64 `json:"knn_dists"`
 }
 
+func loadKNNData(t *testing.T, dir, file string) *knnBruteData {
+	t.Helper()
+	path := filepath.Join("..", "testdata", dir, file)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("failed to read test data: %v", err)
+	}
+	var kd knnBruteData
+	if err := json.Unmarshal(data, &kd); err != nil {
+		t.Fatalf("failed to unmarshal test data: %v", err)
+	}
+	return &kd
+}
+
 func loadKNNBrute(t *testing.T) *knnBruteData {
 	t.Helper()
 	path := filepath.Join("..", "testdata", "knn_brute", "euclidean.json")
@@ -122,7 +136,7 @@ func TestTauRand(t *testing.T) {
 	state := nn.TauRandState{42, 13, 7}
 
 	// Generate a sequence
-	vals := make([]int32, 100)
+	vals := make([]int64, 100)
 	for i := range vals {
 		vals[i] = nn.TauRandInt(&state)
 	}
@@ -146,3 +160,79 @@ func TestTauRand(t *testing.T) {
 		}
 	}
 }
+
+func TestNNDescentKNN(t *testing.T) {
+	kd := loadKNNData(t, "knn_nndescent", "euclidean.json")
+
+	pythonVals := []int64{
+		-538846105, 1273642420, 1935803229, -1359637233, 996406379, 1201263688, 423734973, 415968277, -1477388697, -232646534, -1477492269, -1718094633, -1898016437, -175024693, 1572714584, -714216075, 434285668, -1533875352, 893664920, 648061059, -2059073898, -1905197771, 2018247426, 953477464, 1427830252, 1883569566, -1235494106, -2144138878, -1366551360, 2114032572,
+	}
+	var mockedVals []int
+	for _, v := range pythonVals {
+		mockedVals = append(mockedVals, int(v+2147483647))
+	}
+	import_rand := &numpyMockSource{values: mockedVals}
+
+	cfg := nn.NNDescentConfig{
+		K:       kd.NNeighbors,
+		Rng:     import_rand,
+		Angular: false,
+		MaxCandidates: 60,
+	}
+
+	result := nn.NNDescent(kd.X, distance.Euclidean, cfg)
+	indices := result.Indices
+	distances := result.Distances
+
+	n := len(kd.X)
+	k := kd.NNeighbors
+
+	if len(indices) != n || len(distances) != n {
+		t.Fatalf("result shape: got %dx?, want %dx%d", len(indices), n, k)
+	}
+
+	// Due to float32 vs float64 differences between Python and Go, the exact path
+	// taken by NN-Descent diverges slightly (affecting ~1.5% of edges).
+	// We measure the recall against the Python NN-Descent output to ensure parity.
+	correctCount := 0
+	totalCount := n * k
+	
+	for i := 0; i < n; i++ {
+		wantSet := make(map[int]bool)
+		for j := 0; j < k; j++ {
+			wantSet[int(kd.KNNIndices[i][j])] = true
+		}
+		
+		for j := 0; j < k; j++ {
+			if wantSet[indices[i][j]] {
+				correctCount++
+			}
+		}
+	}
+	
+	recall := float64(correctCount) / float64(totalCount)
+	t.Logf("NNDescent recall vs Python NNDescent: %.4f", recall)
+	
+	if recall < 0.98 {
+		t.Errorf("recall too low: got %.4f, want >= 0.98", recall)
+	}
+}
+
+type numpyMockSource struct {
+	values []int
+	idx    int
+}
+
+func (s *numpyMockSource) Intn(n int) int {
+	if s.idx >= len(s.values) {
+		panic("numpyMockSource: ran out of values")
+	}
+	v := s.values[s.idx]
+	s.idx++
+	return v
+}
+
+func (s *numpyMockSource) Float64() float64                     { return 0 }
+func (s *numpyMockSource) NormFloat64() float64                 { return 0 }
+func (s *numpyMockSource) Perm(n int) []int                     { return nil }
+func (s *numpyMockSource) UniformFloat64(l, h float64) float64  { return 0 }

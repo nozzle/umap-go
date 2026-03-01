@@ -1,7 +1,6 @@
 package nn
 
 import (
-	"math"
 	"sort"
 
 	"github.com/nozzle/umap-go/distance"
@@ -134,17 +133,30 @@ func heapifySiftDown(dists []float64, inds []int, flags []bool, pos, n int) {
 
 // InitFromRandom initializes a Heap with random neighbors.
 // This is used to seed NN-Descent when RP-trees are not available.
-func InitFromRandom(n, k int, distFunc distance.Func, data [][]float64, rngState *TauRandState) *Heap {
-	h := NewHeap(n, k)
+func InitFromRandom(h *Heap, n, k int, distFunc distance.Func, data [][]float64, rngState *TauRandState) *Heap {
+	if h == nil {
+		h = NewHeap(n, k)
+	}
 
 	for i := range n {
-		for range k {
-			idx := TauRandIntRange(rngState, n)
-			if idx == i {
-				continue
+		// In Python: if heap[0][i, 0] < 0.0: 
+		// Python's heap is a max-heap where element 0 is the max distance. 
+		// If it's negative, it means the heap has not been filled up to k elements yet.
+		// (pynndescent initializes empty heap with distance -1.0)
+		// We can just check if the max element distance is math.Inf(1) or if any element is -1.
+		
+		// Count how many valid elements we have
+		validCount := 0
+		for j := 0; j < k; j++ {
+			if h.Indices[i][j] >= 0 {
+				validCount++
 			}
-			d := distFunc(data[i], data[idx])
-			if d < math.Inf(1) {
+		}
+		
+		if validCount < k {
+			for j := 0; j < k - validCount; j++ {
+				idx := TauRandIntRange(rngState, n)
+				d := distFunc(data[idx], data[i])
 				h.Push(i, idx, d, true)
 			}
 		}

@@ -1,6 +1,7 @@
 package nn
 
 import (
+	"math"
 	"github.com/nozzle/umap-go/distance"
 	umaprand "github.com/nozzle/umap-go/rand"
 )
@@ -48,40 +49,47 @@ func NNDescent(data [][]float64, distFunc distance.Func, cfg NNDescentConfig) *N
 		}
 	}
 	if cfg.NIters <= 0 {
-		cfg.NIters = maxInt(5, ilog2(n))
+		cfg.NIters = maxInt(5, int(math.Round(math.Log2(float64(n)))))
 	}
 	if cfg.Delta <= 0 {
 		cfg.Delta = 0.001
 	}
 	if cfg.LeafSize <= 0 {
-		cfg.LeafSize = maxInt(10, cfg.K)
+		cfg.LeafSize = maxInt(60, minInt(256, 5*cfg.K))
 	}
 	if cfg.NTrees <= 0 {
 		cfg.NTrees = defaultNTrees(n)
 	}
 
-	// Step 1: Build RP-forest
+	// Step 1: Initialize RNG states
+	rngState := makeTauRandState(cfg.Rng)
+	searchRngState := makeTauRandState(cfg.Rng)
+	for i := 0; i < 10; i++ {
+		_ = TauRandInt(&searchRngState)
+	}
+
+	// Step 2: Build RP-forest
 	var forest RPForest
 	if cfg.Rng != nil {
 		forest = MakeForest(data, cfg.NTrees, cfg.LeafSize, cfg.Rng, cfg.Angular)
 	}
 
-	// Step 2: Initialize heap
+	// Step 3: Initialize heap
 	var heap *Heap
 	if forest != nil {
 		heap = InitFromForest(forest, data, cfg.K, distFunc)
 	} else {
-		// Fallback: random initialization
-		tauState := TauRandState{42, 13, 7}
-		heap = InitFromRandom(n, cfg.K, distFunc, data, &tauState)
+		heap = NewHeap(n, cfg.K)
 	}
+	
+	// Fill any remaining spots with random candidates
+	heap = InitFromRandom(heap, n, cfg.K, distFunc, data, &rngState)
 
-	// Step 3: NN-Descent iterations
-	tauState := TauRandState{42, 13, 7}
+	// Step 4: NN-Descent iterations
 	threshold := cfg.Delta * float64(cfg.K) * float64(n)
 
 	for iter := range cfg.NIters {
-		newCands, oldCands := heap.BuildCandidates(cfg.MaxCandidates, &tauState)
+		newCands, oldCands := heap.BuildCandidates(cfg.MaxCandidates, &searchRngState)
 
 		updates := 0
 		updates += processNewCandidates(heap, newCands, data, distFunc)
@@ -215,10 +223,10 @@ func ilog2(n int) int {
 }
 
 func defaultNTrees(n int) int {
-	// Matches pynndescent default: min(32, 5 + int(round(n^0.25)))
-	import_math := 5 + int(0.5+pow25(n))
-	if import_math > 32 {
-		return 32
+	// Matches UMAP default: min(64, 5 + int(round((n^0.5)/20.0)))
+	import_math := 5 + int(0.5 + sqrt(float64(n))/20.0)
+	if import_math > 64 {
+		return 64
 	}
 	return import_math
 }
@@ -244,4 +252,23 @@ func sqrt(x float64) float64 {
 		z = z2
 	}
 	return z
+}
+
+func makeTauRandState(rng umaprand.Source) TauRandState {
+	if rng == nil {
+		return TauRandState{42, 13, 7}
+	}
+	var state TauRandState
+	for i := 0; i < 3; i++ {
+		// Python randint(-2147483647, 2147483646) draws from a range of 4294967293
+		state[i] = int64(rng.Intn(4294967293) - 2147483647)
+	}
+	return state
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

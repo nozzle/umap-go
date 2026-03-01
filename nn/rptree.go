@@ -40,6 +40,12 @@ type RPForest []*FlatTree
 func MakeForest(data [][]float64, nTrees int, leafSize int, rng umaprand.Source, angular bool) RPForest {
 	n := len(data)
 	forest := make(RPForest, nTrees)
+	
+	// Generate rng states for each tree
+	treeRngStates := make([]TauRandState, nTrees)
+	for t := range nTrees {
+		treeRngStates[t] = makeTauRandState(rng)
+	}
 
 	for t := range nTrees {
 		// Build indices list [0, 1, ..., n-1]
@@ -48,7 +54,7 @@ func MakeForest(data [][]float64, nTrees int, leafSize int, rng umaprand.Source,
 			indices[i] = i
 		}
 
-		tree := buildRPTree(data, indices, leafSize, rng, angular)
+		tree := buildRPTree(data, indices, leafSize, &treeRngStates[t], angular)
 		forest[t] = flattenTree(tree)
 		_ = t
 	}
@@ -57,14 +63,14 @@ func MakeForest(data [][]float64, nTrees int, leafSize int, rng umaprand.Source,
 }
 
 // buildRPTree recursively builds an RP-tree.
-func buildRPTree(data [][]float64, indices []int, leafSize int, rng umaprand.Source, angular bool) *RPTree {
+func buildRPTree(data [][]float64, indices []int, leafSize int, rngState *TauRandState, angular bool) *RPTree {
 	tree := &RPTree{}
-	buildRPTreeRecursive(tree, data, indices, leafSize, rng, angular)
+	buildRPTreeRecursive(tree, data, indices, leafSize, rngState, angular)
 	return tree
 }
 
 // buildRPTreeRecursive builds the tree by recursively splitting nodes.
-func buildRPTreeRecursive(tree *RPTree, data [][]float64, indices []int, leafSize int, rng umaprand.Source, angular bool) int {
+func buildRPTreeRecursive(tree *RPTree, data [][]float64, indices []int, leafSize int, rngState *TauRandState, angular bool) int {
 	nodeID := len(tree.Hyperplanes)
 
 	if len(indices) <= leafSize {
@@ -81,8 +87,8 @@ func buildRPTreeRecursive(tree *RPTree, data [][]float64, indices []int, leafSiz
 	// Pick two random distinct points to define the hyperplane
 	var leftIdx, rightIdx int
 	for {
-		leftIdx = rng.Intn(len(indices))
-		rightIdx = rng.Intn(len(indices))
+		leftIdx = TauRandIntRange(rngState, len(indices))
+		rightIdx = TauRandIntRange(rngState, len(indices))
 		if leftIdx != rightIdx {
 			break
 		}
@@ -96,7 +102,7 @@ func buildRPTreeRecursive(tree *RPTree, data [][]float64, indices []int, leafSiz
 	if angular {
 		hyperplane, offset = angularRandomProjectionSplit(left, right)
 	} else {
-		hyperplane, offset = euclideanRandomProjectionSplit(left, right, rng)
+		hyperplane, offset = euclideanRandomProjectionSplit(left, right, rngState)
 	}
 
 	// Partition indices by which side of the hyperplane they fall on
@@ -129,8 +135,8 @@ func buildRPTreeRecursive(tree *RPTree, data [][]float64, indices []int, leafSiz
 	tree.Indices = append(tree.Indices, nil)
 
 	// Recurse
-	leftChild := buildRPTreeRecursive(tree, data, leftIndices, leafSize, rng, angular)
-	rightChild := buildRPTreeRecursive(tree, data, rightIndices, leafSize, rng, angular)
+	leftChild := buildRPTreeRecursive(tree, data, leftIndices, leafSize, rngState, angular)
+	rightChild := buildRPTreeRecursive(tree, data, rightIndices, leafSize, rngState, angular)
 	tree.Children[nodeID] = [2]int{leftChild, rightChild}
 
 	return nodeID
@@ -139,7 +145,7 @@ func buildRPTreeRecursive(tree *RPTree, data [][]float64, indices []int, leafSiz
 // euclideanRandomProjectionSplit creates a hyperplane between two points.
 // The hyperplane normal is (left - right), and a random point along the
 // midline determines the offset. Matches pynndescent euclidean_random_projection_split.
-func euclideanRandomProjectionSplit(left, right []float64, rng umaprand.Source) ([]float64, float64) {
+func euclideanRandomProjectionSplit(left, right []float64, rngState *TauRandState) ([]float64, float64) {
 	dim := len(left)
 	hyperplane := make([]float64, dim)
 	midpoint := make([]float64, dim)
