@@ -26,3 +26,11 @@ Build a complete, highly-accurate, pure-Go port of the Python UMAP library (`uma
 
 ## Testing Strategy
 Python scripts in `testdata/` (e.g., `generate.py`) are used to freeze intermediate UMAP states (pairwise distances, knn indices, sigma/rho smoothing, etc.) into JSON/CSV formats. Go tests then read these fixtures and assert that our Go implementation produces the exact same internal tensors.
+
+## Pre-commit Procedures
+
+Before committing any changes to the repository, you **must** ensure the following commands run successfully:
+
+1. **`go test ./...`**: Verify that all tests pass, including PRNG/math parity assertions.
+2. **`go fix ./...`**: Always run the Go fix tool to modernize code and fix simple structural issues.
+3. **`golangci-lint run`**: Ensure the linter passes without errors. Adhering to the linter is required to maintain code quality.
