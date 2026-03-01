@@ -5,11 +5,12 @@ package umap
 // All options have sensible defaults matching Python UMAP v0.5.11.
 
 import (
+	"fmt"
+	"math"
+
+	"github.com/nozzle/umap-go/distance"
 	umaprand "github.com/nozzle/umap-go/rand"
 )
-
-//go:fix inline
-func ptrUint64(v uint64) *uint64 { return new(v) }
 
 // Options configures the UMAP algorithm.
 type Options struct {
@@ -121,23 +122,25 @@ func DefaultOptions() Options {
 		NegativeSampleRate: 5,
 		RepulsionStrength:  1.0,
 		LearningRate:       1.0,
-		RandSource:         umaprand.NewProduction(ptrUint64(42)),
+		RandSource:         umaprand.NewProduction(new(uint64(42))),
+		TargetNNeighbors:   15,
+		TargetMetric:       "categorical",
 		TargetWeight:       0.5,
 	}
 }
 
 // applyDefaults fills in zero-value fields with defaults.
 func (o *Options) applyDefaults() {
-	if o.NNeighbors <= 0 {
+	if o.NNeighbors == 0 {
 		o.NNeighbors = 15
 	}
-	if o.NComponents <= 0 {
+	if o.NComponents == 0 {
 		o.NComponents = 2
 	}
-	if o.MinDist <= 0 {
+	if o.MinDist == 0 {
 		o.MinDist = 0.1
 	}
-	if o.Spread <= 0 {
+	if o.Spread == 0 {
 		o.Spread = 1.0
 	}
 	if o.Metric == "" {
@@ -146,23 +149,29 @@ func (o *Options) applyDefaults() {
 	if o.InitMethod == "" {
 		o.InitMethod = "spectral"
 	}
-	if o.LocalConnectivity <= 0 {
+	if o.LocalConnectivity == 0 {
 		o.LocalConnectivity = 1.0
 	}
 	if o.SetOpMixRatio < 0 {
 		o.SetOpMixRatio = 1.0
 	}
-	if o.NegativeSampleRate <= 0 {
+	if o.NegativeSampleRate == 0 {
 		o.NegativeSampleRate = 5
 	}
-	if o.RepulsionStrength <= 0 {
+	if o.RepulsionStrength == 0 {
 		o.RepulsionStrength = 1.0
 	}
-	if o.LearningRate <= 0 {
+	if o.LearningRate == 0 {
 		o.LearningRate = 1.0
 	}
 	if o.RandSource == nil {
-		o.RandSource = umaprand.NewProduction(ptrUint64(42))
+		o.RandSource = umaprand.NewProduction(new(uint64(42)))
+	}
+	if o.TargetNNeighbors == 0 {
+		o.TargetNNeighbors = o.NNeighbors
+	}
+	if o.TargetMetric == "" {
+		o.TargetMetric = "categorical"
 	}
 	if o.TargetWeight < 0 {
 		o.TargetWeight = 0.5
@@ -170,4 +179,65 @@ func (o *Options) applyDefaults() {
 	if o.DisconnectionDistance == 0 {
 		o.DisconnectionDistance = 1e308
 	}
+}
+
+func (o Options) validate() error {
+	if o.NNeighbors < 2 {
+		return fmt.Errorf("umap: invalid NNeighbors %d: must be >= 2", o.NNeighbors)
+	}
+	if o.NComponents < 1 {
+		return fmt.Errorf("umap: invalid NComponents %d: must be >= 1", o.NComponents)
+	}
+	if o.NEpochs < 0 {
+		return fmt.Errorf("umap: invalid NEpochs %d: must be >= 0", o.NEpochs)
+	}
+	if o.MinDist < 0 {
+		return fmt.Errorf("umap: invalid MinDist %g: must be >= 0", o.MinDist)
+	}
+	if o.Spread <= 0 {
+		return fmt.Errorf("umap: invalid Spread %g: must be > 0", o.Spread)
+	}
+	if o.MinDist > o.Spread {
+		return fmt.Errorf("umap: invalid MinDist %g: must be <= Spread %g", o.MinDist, o.Spread)
+	}
+	if !isSupportedMetric(o.Metric) {
+		return fmt.Errorf("umap: invalid Metric %q: unsupported metric", o.Metric)
+	}
+	switch o.InitMethod {
+	case "spectral", "random", "custom":
+	default:
+		return fmt.Errorf("umap: invalid InitMethod %q: must be one of spectral, random, custom", o.InitMethod)
+	}
+	if o.LocalConnectivity < 0 {
+		return fmt.Errorf("umap: invalid LocalConnectivity %g: must be >= 0", o.LocalConnectivity)
+	}
+	if o.SetOpMixRatio < 0 || o.SetOpMixRatio > 1 {
+		return fmt.Errorf("umap: invalid SetOpMixRatio %g: must be in [0, 1]", o.SetOpMixRatio)
+	}
+	if o.NegativeSampleRate <= 0 {
+		return fmt.Errorf("umap: invalid NegativeSampleRate %g: must be > 0", o.NegativeSampleRate)
+	}
+	if o.RepulsionStrength <= 0 {
+		return fmt.Errorf("umap: invalid RepulsionStrength %g: must be > 0", o.RepulsionStrength)
+	}
+	if o.LearningRate <= 0 {
+		return fmt.Errorf("umap: invalid LearningRate %g: must be > 0", o.LearningRate)
+	}
+	if o.TargetNNeighbors < 2 {
+		return fmt.Errorf("umap: invalid TargetNNeighbors %d: must be >= 2", o.TargetNNeighbors)
+	}
+	if !isSupportedMetric(o.TargetMetric) {
+		return fmt.Errorf("umap: invalid TargetMetric %q: unsupported metric", o.TargetMetric)
+	}
+	if o.TargetWeight < 0 || o.TargetWeight > 1 {
+		return fmt.Errorf("umap: invalid TargetWeight %g: must be in [0, 1]", o.TargetWeight)
+	}
+	if math.IsNaN(o.DisconnectionDistance) || o.DisconnectionDistance < 0 {
+		return fmt.Errorf("umap: invalid DisconnectionDistance %g: must be >= 0", o.DisconnectionDistance)
+	}
+	return nil
+}
+
+func isSupportedMetric(name string) bool {
+	return name == "categorical" || distance.Named(name) != nil || distance.NamedWithParam(name) != nil
 }

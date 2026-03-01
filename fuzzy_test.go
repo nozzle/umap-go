@@ -151,3 +151,32 @@ func TestFuzzySimplicialSetStructure(t *testing.T) {
 		})
 	}
 }
+
+func TestFuzzySimplicialSetCategoricalMetric(t *testing.T) {
+	data := [][]float64{
+		{0}, {0},
+		{1}, {1},
+		{2}, {2},
+	}
+
+	result := FuzzySimplicialSet(
+		data,
+		3,
+		nil,
+		"categorical",
+		nil,
+		1.0,
+		1.0,
+	)
+	if result == nil || result.SearchIndex == nil {
+		t.Fatal("expected non-nil result with search index")
+	}
+
+	for i := range result.SearchIndex.Distances {
+		for j, d := range result.SearchIndex.Distances[i] {
+			if d != 0 && d != 1 {
+				t.Fatalf("categorical distance should be 0 or 1, got %v at [%d][%d]", d, i, j)
+			}
+		}
+	}
+}

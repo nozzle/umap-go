@@ -150,6 +150,71 @@ func TestSpectralLayoutDisconnected(t *testing.T) {
 	}
 }
 
+func TestComputeMetaEmbeddingFallbackUsesComponentStructure(t *testing.T) {
+	const dim = 2
+	const nComps = 5 // triggers nComps > 2*dim fallback
+
+	coo := sparse.NewCOO(17, 17)
+	addUndirected := func(i, j int) {
+		coo.Set(i, j, 1.0)
+		coo.Set(j, i, 1.0)
+	}
+
+	// Component 0: path of 3 nodes
+	addUndirected(0, 1)
+	addUndirected(1, 2)
+
+	// Component 1: clique of 4 nodes
+	for i := 3; i <= 6; i++ {
+		for j := i + 1; j <= 6; j++ {
+			addUndirected(i, j)
+		}
+	}
+
+	// Component 2: edge of 2 nodes
+	addUndirected(7, 8)
+
+	// Component 3: star of 5 nodes
+	for j := 10; j <= 13; j++ {
+		addUndirected(9, j)
+	}
+
+	// Component 4: path of 3 nodes (same structure as component 0)
+	addUndirected(14, 15)
+	addUndirected(15, 16)
+
+	graph := coo.ToCSR()
+	gotComps, labels := sparse.ConnectedComponents(graph)
+	if gotComps != nComps {
+		t.Fatalf("connected components: got %d, want %d", gotComps, nComps)
+	}
+
+	meta1 := computeMetaEmbedding(graph, labels, gotComps, dim)
+	meta2 := computeMetaEmbedding(graph, labels, gotComps, dim)
+
+	if len(meta1) != nComps || len(meta1[0]) != dim {
+		t.Fatalf("meta embedding shape: got %dx%d, want %dx%d", len(meta1), len(meta1[0]), nComps, dim)
+	}
+
+	d04 := euclideanDistance(meta1[0], meta1[4]) // identical component structures
+	d01 := euclideanDistance(meta1[0], meta1[1])
+	d03 := euclideanDistance(meta1[0], meta1[3])
+	if d04 >= d01 || d04 >= d03 {
+		t.Fatalf("expected similar components to be closer: d04=%.6f d01=%.6f d03=%.6f", d04, d01, d03)
+	}
+
+	// Deterministic fallback: pairwise distances should match across calls.
+	for i := range nComps {
+		for j := i + 1; j < nComps; j++ {
+			d1 := euclideanDistance(meta1[i], meta1[j])
+			d2 := euclideanDistance(meta2[i], meta2[j])
+			if math.Abs(d1-d2) > 1e-12 {
+				t.Fatalf("pairwise distance mismatch for (%d,%d): %.12f vs %.12f", i, j, d1, d2)
+			}
+		}
+	}
+}
+
 // pearsonCorrelation computes the Pearson correlation coefficient.
 func pearsonCorrelation(x, y []float64) float64 {
 	n := float64(len(x))
@@ -167,4 +232,13 @@ func pearsonCorrelation(x, y []float64) float64 {
 		return 0
 	}
 	return num / den
+}
+
+func euclideanDistance(a, b []float64) float64 {
+	s := 0.0
+	for i := range a {
+		d := a[i] - b[i]
+		s += d * d
+	}
+	return math.Sqrt(s)
 }

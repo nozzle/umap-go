@@ -18,48 +18,93 @@ This project was built with a strict mandate: achieve **exact mathematical parit
 go get github.com/nozzle/umap-go
 ```
 
-## Quick Start
+## Capability Matrix
+
+| Capability | Status | Notes |
+| --- | --- | --- |
+| `Fit(X)` / `FitTransform(X, nil)` | Supported | Unsupervised training and embedding generation. |
+| `FitTransform(X, y)` | Supported | Supervised mode (`y []float64`) via target-graph intersection. |
+| `Transform(XNew)` | Supported | Out-of-sample mapping after `Fit`/`FitTransform`. |
+| `InverseTransform(XEmbedded)` | Deferred | Method currently returns `umap: InverseTransform not yet implemented`; deferred while a pure-Go replacement for Python's Delaunay/QHull path is unresolved. |
+
+## Reproducibility (seeded `RandSource`)
+
+Use a fixed seed for deterministic runs:
+
+```go
+seed := uint64(42)
+opts := umap.DefaultOptions()
+opts.RandSource = umaprand.NewProduction(&seed)
+model := umap.New(opts)
+```
+
+For repeatable independent runs, create a fresh `RandSource` from the same seed per run (do not reuse a previously advanced source).
+
+## Usage
 
 ```go
 package main
 
 import (
-	"fmt"
 	"github.com/nozzle/umap-go"
+	umaprand "github.com/nozzle/umap-go/rand"
 )
 
-func main() {
-	// 1. Configure UMAP options
+func seededOptions(seed uint64) umap.Options {
 	opts := umap.DefaultOptions()
-	opts.NNeighbors = 15
-	opts.MinDist = 0.1
-	opts.NComponents = 2
-
-	// 2. Initialize model
-	model := umap.New(opts)
-
-	// 3. Fit data
-	var trainingData [][]float64 // Load your n x d data here
-	embedding, err := model.FitTransform(trainingData, nil)
-	if err != nil {
-		panic(err)
-	}
-	fmt.Printf("Embedded %d points into %d dimensions\n", len(embedding), len(embedding[0]))
-
-	// 4. Transform new, out-of-sample data
-	var newData [][]float64 
-	newEmbedding, err := model.Transform(newData)
-	if err != nil {
-		panic(err)
-	}
-	fmt.Println("Successfully transformed new data points.")
+	opts.RandSource = umaprand.NewProduction(&seed)
+	return opts
 }
 ```
 
-## Current Status & Roadmap
+### 1) Unsupervised `Fit` and `FitTransform`
 
-- [x] Phase 1: Distance metrics (~100% parity against dense, sparse, and gradient reference outputs)
-- [x] Phase 2: NN-Descent & RP-Trees (Including Tausworthe PRNG sequence matching)
-- [x] Phase 3: Core UMAP Fit, Graph Construction, and SGD Optimization 
-- [x] Phase 4: `Transform()` API (Out-of-sample mapping via bipartite graph strengths and frozen SGD)
-- [ ] Phase 5: `InverseTransform()` API (Currently deferred. Python relies on N-dimensional Delaunay triangulation via `scipy.spatial.Delaunay` / QHull, which lacks a lightweight pure-Go equivalent).
+```go
+var X [][]float64
+
+modelA := umap.New(seededOptions(42))
+if err := modelA.Fit(X); err != nil {
+	panic(err)
+}
+embeddingA := modelA.Embedding()
+
+modelB := umap.New(seededOptions(42))
+embeddingB, err := modelB.FitTransform(X, nil)
+if err != nil {
+	panic(err)
+}
+_ = embeddingA
+_ = embeddingB
+```
+
+### 2) Supervised `FitTransform`
+
+```go
+var X [][]float64
+var y []float64 // class labels or continuous targets
+
+model := umap.New(seededOptions(42))
+embedding, err := model.FitTransform(X, y)
+if err != nil {
+	panic(err)
+}
+_ = embedding
+```
+
+### 3) Out-of-sample `Transform`
+
+```go
+var XTrain, XNew [][]float64
+
+model := umap.New(seededOptions(42))
+_, err := model.FitTransform(XTrain, nil)
+if err != nil {
+	panic(err)
+}
+
+newEmbedding, err := model.Transform(XNew)
+if err != nil {
+	panic(err)
+}
+_ = newEmbedding
+```

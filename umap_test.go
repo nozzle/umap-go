@@ -3,6 +3,7 @@ package umap
 // umap_test.go tests the full end-to-end UMAP pipeline.
 
 import (
+	"strings"
 	"testing"
 
 	umaprand "github.com/nozzle/umap-go/rand"
@@ -197,5 +198,140 @@ func TestDefaultOptions(t *testing.T) {
 	}
 	if opts.RandSource == nil {
 		t.Error("RandSource should not be nil")
+	}
+	if opts.TargetNNeighbors != opts.NNeighbors {
+		t.Errorf("TargetNNeighbors: got %d, want %d", opts.TargetNNeighbors, opts.NNeighbors)
+	}
+	if opts.TargetMetric != "categorical" {
+		t.Errorf("TargetMetric: got %q, want \"categorical\"", opts.TargetMetric)
+	}
+	if opts.TargetWeight != 0.5 {
+		t.Errorf("TargetWeight: got %v, want 0.5", opts.TargetWeight)
+	}
+}
+
+func TestUMAP_SupervisedUsesTargetNNeighbors(t *testing.T) {
+	var dataset struct {
+		X [][]float64 `json:"X"`
+		Y []float64   `json:"y"`
+	}
+	loadJSON(t, "datasets/iris.json", &dataset)
+
+	X := dataset.X[:90]
+	y := dataset.Y[:90]
+
+	optsA := DefaultOptions()
+	optsA.NNeighbors = 15
+	optsA.TargetWeight = 1.0
+	optsA.TargetNNeighbors = 5
+	seedA := uint64(7)
+	optsA.RandSource = umaprand.NewProduction(&seedA)
+
+	modelA := New(optsA)
+	_, err := modelA.FitTransform(X, y)
+	if err != nil {
+		t.Fatalf("FitTransform A failed: %v", err)
+	}
+
+	optsB := DefaultOptions()
+	optsB.NNeighbors = 15
+	optsB.TargetWeight = 1.0
+	optsB.TargetNNeighbors = 15
+	seedB := uint64(7)
+	optsB.RandSource = umaprand.NewProduction(&seedB)
+
+	modelB := New(optsB)
+	_, err = modelB.FitTransform(X, y)
+	if err != nil {
+		t.Fatalf("FitTransform B failed: %v", err)
+	}
+
+	graphA := modelA.Graph()
+	graphB := modelB.Graph()
+	if graphA == nil || graphB == nil {
+		t.Fatal("expected non-nil graphs")
+	}
+
+	sameLen := len(graphA.Data) == len(graphB.Data)
+	sameWeights := sameLen
+	if sameLen {
+		for i := range graphA.Data {
+			if !approxEqual(graphA.Data[i], graphB.Data[i], 1e-12) {
+				sameWeights = false
+				break
+			}
+		}
+	}
+	if sameLen && sameWeights {
+		t.Fatal("expected supervised graphs to differ when TargetNNeighbors differs")
+	}
+}
+
+func TestUMAP_InvalidOptions(t *testing.T) {
+	X := [][]float64{
+		{0, 0},
+		{1, 1},
+		{2, 2},
+	}
+	y := []float64{0, 1, 0}
+
+	tests := []struct {
+		name  string
+		y     []float64
+		mut   func(*Options)
+		error string
+	}{
+		{
+			name: "unsupported metric",
+			mut: func(opts *Options) {
+				opts.Metric = "not-a-metric"
+			},
+			error: "invalid Metric",
+		},
+		{
+			name: "negative n neighbors",
+			mut: func(opts *Options) {
+				opts.NNeighbors = -5
+			},
+			error: "invalid NNeighbors",
+		},
+		{
+			name: "set op mix ratio out of range",
+			mut: func(opts *Options) {
+				opts.SetOpMixRatio = 1.1
+			},
+			error: "invalid SetOpMixRatio",
+		},
+		{
+			name: "min dist larger than spread",
+			mut: func(opts *Options) {
+				opts.MinDist = 2.0
+				opts.Spread = 1.0
+			},
+			error: "must be <= Spread",
+		},
+		{
+			name: "unsupported target metric",
+			y:    y,
+			mut: func(opts *Options) {
+				opts.TargetMetric = "ordinal"
+			},
+			error: "invalid TargetMetric",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			opts := DefaultOptions()
+			tc.mut(&opts)
+			model := New(opts)
+			_, err := model.FitTransform(X, tc.y)
+			if err == nil {
+				t.Fatalf("expected error containing %q, got nil", tc.error)
+			}
+			if !strings.Contains(err.Error(), tc.error) {
+				t.Fatalf("error: got %q, want substring %q", err.Error(), tc.error)
+			}
+		})
 	}
 }

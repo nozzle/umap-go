@@ -160,7 +160,7 @@ func multiComponentSpectral(graph *sparse.CSR, dim, nComps int, labels []int) []
 	// Step 1: Compute meta-embedding for component centroids.
 	// Python: for nComps <= 2*dim, k = ceil(nComps/2), base = hstack(eye(k), zeros(k, dim-k)),
 	// meta = vstack(base, -base)[:nComps]
-	metaEmbedding := computeMetaEmbedding(nComps, dim)
+	metaEmbedding := computeMetaEmbedding(graph, labels, nComps, dim)
 
 	// Step 2: For each component, run spectral layout and position.
 	for comp := range nComps {
@@ -226,17 +226,10 @@ func multiComponentSpectral(graph *sparse.CSR, dim, nComps int, labels []int) []
 // computeMetaEmbedding creates the meta-embedding for component centroids.
 // For nComps <= 2*dim: k = ceil(nComps/2), base = [eye(k) | zeros(k, dim-k)],
 // meta = [base; -base][:nComps]
-// For nComps > 2*dim: TODO — use component_layout with spectral embedding of centroids
-func computeMetaEmbedding(nComps, dim int) [][]float64 {
+// For nComps > 2*dim: use a deterministic component-statistics MDS fallback.
+func computeMetaEmbedding(graph *sparse.CSR, labels []int, nComps, dim int) [][]float64 {
 	if nComps > 2*dim {
-		// TODO: Implement component_layout for many components
-		// For now, fall back to simple linear spacing
-		meta := make([][]float64, nComps)
-		for c := range nComps {
-			meta[c] = make([]float64, dim)
-			meta[c][0] = float64(c) * 10.0
-		}
-		return meta
+		return computeMetaEmbeddingFallback(graph, labels, nComps, dim)
 	}
 
 	k := (nComps + 1) / 2 // ceil(nComps / 2)
@@ -262,6 +255,174 @@ func computeMetaEmbedding(nComps, dim int) [][]float64 {
 		}
 	}
 
+	return meta
+}
+
+func computeMetaEmbeddingFallback(graph *sparse.CSR, labels []int, nComps, dim int) [][]float64 {
+	features := componentFeatures(graph, labels, nComps)
+	d2 := make([][]float64, nComps)
+	for i := range nComps {
+		d2[i] = make([]float64, nComps)
+	}
+	hasDistance := false
+	for i := range nComps {
+		for j := i + 1; j < nComps; j++ {
+			s := 0.0
+			for k := range features[i] {
+				diff := features[i][k] - features[j][k]
+				s += diff * diff
+			}
+			d2[i][j] = s
+			d2[j][i] = s
+			if s > 0 {
+				hasDistance = true
+			}
+		}
+	}
+	if !hasDistance {
+		return deterministicMetaSpread(nComps, dim)
+	}
+
+	rowMean := make([]float64, nComps)
+	totalMean := 0.0
+	invN := 1.0 / float64(nComps)
+	for i := range nComps {
+		sum := 0.0
+		for j := range nComps {
+			sum += d2[i][j]
+		}
+		rowMean[i] = sum * invN
+		totalMean += sum
+	}
+	totalMean *= invN * invN
+
+	b := mat.NewSymDense(nComps, nil)
+	for i := range nComps {
+		for j := i; j < nComps; j++ {
+			v := -0.5 * (d2[i][j] - rowMean[i] - rowMean[j] + totalMean)
+			b.SetSym(i, j, v)
+		}
+	}
+
+	var eigen mat.EigenSym
+	ok := eigen.Factorize(b, true)
+	if !ok {
+		return deterministicMetaSpread(nComps, dim)
+	}
+
+	values := eigen.Values(nil)
+	var vectors mat.Dense
+	eigen.VectorsTo(&vectors)
+
+	meta := make([][]float64, nComps)
+	for i := range nComps {
+		meta[i] = make([]float64, dim)
+	}
+
+	outDim := 0
+	for eigIdx := len(values) - 1; eigIdx >= 0 && outDim < dim; eigIdx-- {
+		if values[eigIdx] <= 1e-12 {
+			continue
+		}
+		scale := math.Sqrt(values[eigIdx])
+		for i := range nComps {
+			meta[i][outDim] = vectors.At(i, eigIdx) * scale
+		}
+		outDim++
+	}
+
+	if outDim == 0 {
+		return deterministicMetaSpread(nComps, dim)
+	}
+
+	maxAbs := 0.0
+	for i := range nComps {
+		for d := range dim {
+			a := math.Abs(meta[i][d])
+			if a > maxAbs {
+				maxAbs = a
+			}
+		}
+	}
+	if maxAbs > 0 {
+		inv := 1.0 / maxAbs
+		for i := range nComps {
+			for d := range dim {
+				meta[i][d] *= inv
+			}
+		}
+	}
+
+	return meta
+}
+
+func componentFeatures(graph *sparse.CSR, labels []int, nComps int) [][]float64 {
+	sizes := make([]float64, nComps)
+	sumDeg := make([]float64, nComps)
+	sumDegSq := make([]float64, nComps)
+
+	for i := range graph.Rows {
+		c := labels[i]
+		deg := 0.0
+		for idx := graph.Indptr[i]; idx < graph.Indptr[i+1]; idx++ {
+			deg += graph.Data[idx]
+		}
+		sizes[c]++
+		sumDeg[c] += deg
+		sumDegSq[c] += deg * deg
+	}
+
+	features := make([][]float64, nComps)
+	for c := range nComps {
+		features[c] = make([]float64, 3)
+		size := sizes[c]
+		if size == 0 {
+			continue
+		}
+		meanDeg := sumDeg[c] / size
+		varDeg := sumDegSq[c]/size - meanDeg*meanDeg
+		if varDeg < 0 {
+			varDeg = 0
+		}
+		features[c][0] = math.Log1p(size)
+		features[c][1] = meanDeg
+		features[c][2] = math.Sqrt(varDeg)
+	}
+
+	for k := range 3 {
+		minV := math.Inf(1)
+		maxV := math.Inf(-1)
+		for c := range nComps {
+			v := features[c][k]
+			if v < minV {
+				minV = v
+			}
+			if v > maxV {
+				maxV = v
+			}
+		}
+		if maxV == minV {
+			continue
+		}
+		invRange := 1.0 / (maxV - minV)
+		for c := range nComps {
+			features[c][k] = (features[c][k] - minV) * invRange
+		}
+	}
+
+	return features
+}
+
+func deterministicMetaSpread(nComps, dim int) [][]float64 {
+	meta := make([][]float64, nComps)
+	den := float64(nComps + 1)
+	for c := range nComps {
+		meta[c] = make([]float64, dim)
+		for d := range dim {
+			angle := 2 * math.Pi * float64((c+1)*(d+1)) / den
+			meta[c][d] = math.Cos(angle)
+		}
+	}
 	return meta
 }
 

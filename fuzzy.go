@@ -216,6 +216,16 @@ func FuzzySimplicialSet(
 	// Get distance function
 	distFunc := distance.Named(metric)
 	if distFunc == nil {
+		if metric == "categorical" {
+			distFunc = func(x, y []float64) float64 {
+				if len(x) > 0 && len(y) > 0 && x[0] == y[0] {
+					return 0
+				}
+				return 1
+			}
+		}
+	}
+	if distFunc == nil {
 		// Try parameterized
 		paramFunc := distance.NamedWithParam(metric)
 		if paramFunc != nil {

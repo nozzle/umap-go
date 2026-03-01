@@ -52,6 +52,9 @@ func (u *UMAP) FitTransform(X [][]float64, y []float64) ([][]float64, error) {
 	if len(X[0]) == 0 {
 		return nil, fmt.Errorf("umap: zero-dimensional input data")
 	}
+	if err := u.opts.validate(); err != nil {
+		return nil, err
+	}
 
 	n := len(X)
 	u.rawData = X
@@ -320,23 +323,22 @@ func (u *UMAP) randomInitEmbedding(n, nComp int) [][]float64 {
 
 // applySupervisedGraph constructs and intersects a target topology.
 func (u *UMAP) applySupervisedGraph(y []float64) {
-	// Build target graph based on label equivalence
 	n := len(y)
-	coo := sparse.NewCOO(n, n)
-
+	targetData := make([][]float64, n)
 	for i := range n {
-		for j := range n {
-			if i != j {
-				if y[i] == y[j] {
-					coo.Set(i, j, 1.0)
-				} else {
-					coo.Set(i, j, 0.1) // small weight for different labels
-				}
-			}
-		}
+		targetData[i] = []float64{y[i]}
 	}
 
-	targetGraph := coo.ToCSR()
+	targetResult := FuzzySimplicialSet(
+		targetData,
+		u.opts.TargetNNeighbors,
+		u.opts.RandSource,
+		u.opts.TargetMetric,
+		nil,
+		u.opts.LocalConnectivity,
+		u.opts.SetOpMixRatio,
+	)
+	targetGraph := targetResult.Graph
 
 	// Intersect data graph with target graph
 	u.graph = sparse.GeneralSimplicialSetIntersection(u.graph, targetGraph, u.opts.TargetWeight)
