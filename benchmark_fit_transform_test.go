@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"runtime"
 	"testing"
 	"time"
 
@@ -160,6 +161,53 @@ func BenchmarkFitTransformParallelModes(b *testing.B) {
 			if mode == "serial" {
 				opts.NWorkers = 1
 			}
+
+			b.ReportAllocs()
+			b.ResetTimer()
+			for range b.N {
+				seed := tc.Seed
+				opts.RandSource = umaprand.NewProduction(&seed)
+				model := New(opts)
+				if _, err := model.FitTransform(X, nil); err != nil {
+					b.Fatalf("FitTransform failed: %v", err)
+				}
+			}
+		})
+	}
+}
+
+type workerBenchConfig struct {
+	Name         string
+	ParallelMode string
+	NWorkers     int
+}
+
+func workerBenchmarkConfigs() []workerBenchConfig {
+	return []workerBenchConfig{
+		{Name: "w1", ParallelMode: "auto", NWorkers: 1},
+		{Name: "w2", ParallelMode: "auto", NWorkers: 2},
+		{Name: "w4", ParallelMode: "auto", NWorkers: 4},
+		{Name: "w8", ParallelMode: "auto", NWorkers: 8},
+		{Name: "auto", ParallelMode: "auto", NWorkers: runtime.GOMAXPROCS(0)},
+	}
+}
+
+// BenchmarkFitTransformWorkerCounts benchmarks FitTransform across worker counts.
+func BenchmarkFitTransformWorkerCounts(b *testing.B) {
+	tc := benchmarkCases()[0]
+	X := benchmarkData(tc.NSamples, tc.NFeatures, tc.Seed)
+
+	for _, wc := range workerBenchmarkConfigs() {
+		wc := wc
+		b.Run(wc.Name, func(b *testing.B) {
+			opts := DefaultOptions()
+			opts.NNeighbors = tc.NNeighbors
+			opts.NComponents = tc.NComponents
+			opts.NEpochs = tc.NEpochs
+			opts.MinDist = 0.1
+			opts.Spread = 1.0
+			opts.ParallelMode = wc.ParallelMode
+			opts.NWorkers = wc.NWorkers
 
 			b.ReportAllocs()
 			b.ResetTimer()
