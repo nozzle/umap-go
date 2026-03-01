@@ -11,7 +11,7 @@ const minSplitBalance = 0.1
 // computeGlobalDegrees computes the global in-degree for all points in the graph.
 func computeGlobalDegrees(neighborIndices [][]int, nPoints int) []int {
 	degrees := make([]int, nPoints)
-	for i := 0; i < len(neighborIndices); i++ {
+	for i := range neighborIndices {
 		for j := 0; j < len(neighborIndices[i]); j++ {
 			neighbor := neighborIndices[i][j]
 			if neighbor >= 0 && neighbor < nPoints {
@@ -25,10 +25,7 @@ func computeGlobalDegrees(neighborIndices [][]int, nPoints int) []int {
 // getTopKHubIndices gets the indices of the top k highest-degree points from a subset.
 func getTopKHubIndices(indices []int, globalDegrees []int, k int) []int {
 	nPoints := len(indices)
-	actualK := k
-	if nPoints < k {
-		actualK = nPoints
-	}
+	actualK := min(nPoints, k)
 
 	topDegrees := make([]int, actualK)
 	for i := range topDegrees {
@@ -36,7 +33,7 @@ func getTopKHubIndices(indices []int, globalDegrees []int, k int) []int {
 	}
 	topIndices := make([]int, actualK)
 
-	for i := 0; i < nPoints; i++ {
+	for i := range nPoints {
 		deg := globalDegrees[indices[i]]
 
 		if deg > topDegrees[actualK-1] {
@@ -77,13 +74,13 @@ func euclideanHubSplit(data [][]float64, indices []int, globalDegrees []int, rng
 
 	hyperplaneVector := make([]float64, dim)
 
-	for hi := 0; hi < nHubs; hi++ {
+	for hi := range nHubs {
 		for hj := hi + 1; hj < nHubs; hj++ {
 			left := topHubs[hi]
 			right := topHubs[hj]
 
 			hyperplaneOffset := 0.0
-			for d := 0; d < dim; d++ {
+			for d := range dim {
 				hyperplaneVector[d] = data[left][d] - data[right][d]
 				hyperplaneOffset -= hyperplaneVector[d] * (data[left][d] + data[right][d]) / 2.0
 			}
@@ -91,9 +88,9 @@ func euclideanHubSplit(data [][]float64, indices []int, globalDegrees []int, rng
 			nLeft := 0
 			nRight := 0
 
-			for i := 0; i < nPoints; i++ {
+			for i := range nPoints {
 				margin := hyperplaneOffset
-				for d := 0; d < dim; d++ {
+				for d := range dim {
 					margin += hyperplaneVector[d] * data[indices[i]][d]
 				}
 
@@ -133,7 +130,7 @@ func euclideanHubSplit(data [][]float64, indices []int, globalDegrees []int, rng
 	if bestNLeft == 0 || bestNRight == 0 {
 		bestNLeft = 0
 		bestNRight = 0
-		for i := 0; i < nPoints; i++ {
+		for i := range nPoints {
 			bestSide[i] = int8(math.Abs(float64(TauRandInt(rngState)))) % 2
 			if bestSide[i] == 0 {
 				bestNLeft++
@@ -146,7 +143,7 @@ func euclideanHubSplit(data [][]float64, indices []int, globalDegrees []int, rng
 	indicesLeft := make([]int, 0, bestNLeft)
 	indicesRight := make([]int, 0, bestNRight)
 
-	for i := 0; i < nPoints; i++ {
+	for i := range nPoints {
 		if bestSide[i] == 0 {
 			indicesLeft = append(indicesLeft, indices[i])
 		} else {
@@ -174,13 +171,13 @@ func angularHubSplit(data [][]float64, indices []int, globalDegrees []int, rngSt
 
 	hyperplaneVector := make([]float64, dim)
 
-	for hi := 0; hi < nHubs; hi++ {
+	for hi := range nHubs {
 		for hj := hi + 1; hj < nHubs; hj++ {
 			left := topHubs[hi]
 			right := topHubs[hj]
 
 			var leftNorm, rightNorm float64
-			for d := 0; d < dim; d++ {
+			for d := range dim {
 				leftNorm += data[left][d] * data[left][d]
 				rightNorm += data[right][d] * data[right][d]
 			}
@@ -195,7 +192,7 @@ func angularHubSplit(data [][]float64, indices []int, globalDegrees []int, rngSt
 					hyperplaneVector[0] = 1.0
 				}
 			} else {
-				for d := 0; d < dim; d++ {
+				for d := range dim {
 					hyperplaneVector[d] = (data[left][d] / leftNorm) - (data[right][d] / rightNorm)
 				}
 			}
@@ -203,9 +200,9 @@ func angularHubSplit(data [][]float64, indices []int, globalDegrees []int, rngSt
 			nLeft := 0
 			nRight := 0
 
-			for i := 0; i < nPoints; i++ {
+			for i := range nPoints {
 				margin := 0.0
-				for d := 0; d < dim; d++ {
+				for d := range dim {
 					margin += hyperplaneVector[d] * data[indices[i]][d]
 				}
 
@@ -245,7 +242,7 @@ func angularHubSplit(data [][]float64, indices []int, globalDegrees []int, rngSt
 	if bestNLeft == 0 || bestNRight == 0 {
 		bestNLeft = 0
 		bestNRight = 0
-		for i := 0; i < nPoints; i++ {
+		for i := range nPoints {
 			bestSide[i] = int8(math.Abs(float64(TauRandInt(rngState)))) % 2
 			if bestSide[i] == 0 {
 				bestNLeft++
@@ -258,7 +255,7 @@ func angularHubSplit(data [][]float64, indices []int, globalDegrees []int, rngSt
 	indicesLeft := make([]int, 0, bestNLeft)
 	indicesRight := make([]int, 0, bestNRight)
 
-	for i := 0; i < nPoints; i++ {
+	for i := range nPoints {
 		if bestSide[i] == 0 {
 			indicesLeft = append(indicesLeft, indices[i])
 		} else {

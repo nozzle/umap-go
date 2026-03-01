@@ -23,7 +23,7 @@ type UMAP struct {
 	a, b      float64     // curve-fitting parameters
 
 	// Data retained for transform
-	rawData    [][]float64
+	rawData        [][]float64
 	knnSearchIndex *nn.SearchIndex
 
 	fitted bool
@@ -371,7 +371,7 @@ func initGraphTransform(graph *sparse.CSR, trainingEmbedding [][]float64) [][]fl
 	dim := len(trainingEmbedding[0])
 	result := make([][]float64, nNew)
 
-	for i := 0; i < nNew; i++ {
+	for i := range nNew {
 		result[i] = make([]float64, dim)
 		start := graph.Indptr[i]
 		end := graph.Indptr[i+1]
@@ -379,7 +379,7 @@ func initGraphTransform(graph *sparse.CSR, trainingEmbedding [][]float64) [][]fl
 		if start == end {
 			// No neighbors, python emits np.nan, we just use 0.0 or could use NaNs
 			// Go float64 defaults to 0.0. To strictly match, we could use math.NaN()
-			for d := 0; d < dim; d++ {
+			for d := range dim {
 				result[i][d] = math.NaN()
 			}
 			continue
@@ -398,9 +398,9 @@ func initGraphTransform(graph *sparse.CSR, trainingEmbedding [][]float64) [][]fl
 				copy(result[i], trainingEmbedding[col])
 				break
 			}
-			
+
 			weight := val / rowSum
-			for d := 0; d < dim; d++ {
+			for d := range dim {
 				result[i][d] += weight * trainingEmbedding[col][d]
 			}
 		}

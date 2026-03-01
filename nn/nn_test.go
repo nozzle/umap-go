@@ -61,11 +61,11 @@ func TestBruteForceKNN(t *testing.T) {
 
 	// Compare indices
 	indicesMismatch := 0
-	for i := 0; i < n; i++ {
+	for i := range n {
 		if len(indices[i]) != k {
 			t.Fatalf("indices[%d] length: got %d, want %d", i, len(indices[i]), k)
 		}
-		for j := 0; j < k; j++ {
+		for j := range k {
 			wantIdx := int(kd.KNNIndices[i][j])
 			if indices[i][j] != wantIdx {
 				indicesMismatch++
@@ -82,8 +82,8 @@ func TestBruteForceKNN(t *testing.T) {
 	// Compare distances
 	distMismatch := 0
 	tol := 1e-6 // Python kNN distances are float32; Go uses float64
-	for i := 0; i < n; i++ {
-		for j := 0; j < k; j++ {
+	for i := range n {
+		for j := range k {
 			diff := math.Abs(distances[i][j] - kd.KNNDists[i][j])
 			if diff > tol {
 				distMismatch++
@@ -115,14 +115,14 @@ func TestPairwiseDistances(t *testing.T) {
 	}
 
 	// Diagonal should be zero
-	for i := 0; i < n; i++ {
+	for i := range n {
 		if D[i][i] != 0 {
 			t.Errorf("D[%d][%d] = %v, want 0", i, i, D[i][i])
 		}
 	}
 
 	// Should be symmetric
-	for i := 0; i < n; i++ {
+	for i := range n {
 		for j := i + 1; j < n; j++ {
 			if math.Abs(D[i][j]-D[j][i]) > 1e-12 {
 				t.Errorf("asymmetric: D[%d][%d]=%v != D[%d][%d]=%v", i, j, D[i][j], j, i, D[j][i])
@@ -153,7 +153,7 @@ func TestTauRand(t *testing.T) {
 	// TauRandIntRange should produce values in [0, n)
 	state3 := nn.TauRandState{42, 13, 7}
 	n := 100
-	for i := 0; i < 1000; i++ {
+	for range 1000 {
 		v := nn.TauRandIntRange(&state3, n)
 		if v < 0 || v >= n {
 			t.Fatalf("TauRandIntRange out of range: got %d, want [0,%d)", v, n)
@@ -174,9 +174,9 @@ func TestNNDescentKNN(t *testing.T) {
 	import_rand := &numpyMockSource{values: mockedVals}
 
 	cfg := nn.NNDescentConfig{
-		K:       kd.NNeighbors,
-		Rng:     import_rand,
-		Angular: false,
+		K:             kd.NNeighbors,
+		Rng:           import_rand,
+		Angular:       false,
 		MaxCandidates: 60,
 	}
 
@@ -196,23 +196,23 @@ func TestNNDescentKNN(t *testing.T) {
 	// We measure the recall against the Python NN-Descent output to ensure parity.
 	correctCount := 0
 	totalCount := n * k
-	
-	for i := 0; i < n; i++ {
+
+	for i := range n {
 		wantSet := make(map[int]bool)
-		for j := 0; j < k; j++ {
+		for j := range k {
 			wantSet[int(kd.KNNIndices[i][j])] = true
 		}
-		
-		for j := 0; j < k; j++ {
+
+		for j := range k {
 			if wantSet[indices[i][j]] {
 				correctCount++
 			}
 		}
 	}
-	
+
 	recall := float64(correctCount) / float64(totalCount)
 	t.Logf("NNDescent recall vs Python NNDescent: %.4f", recall)
-	
+
 	if recall < 0.98 {
 		t.Errorf("recall too low: got %.4f, want >= 0.98", recall)
 	}
@@ -232,7 +232,7 @@ func (s *numpyMockSource) Intn(n int) int {
 	return v
 }
 
-func (s *numpyMockSource) Float64() float64                     { return 0 }
-func (s *numpyMockSource) NormFloat64() float64                 { return 0 }
-func (s *numpyMockSource) Perm(n int) []int                     { return nil }
-func (s *numpyMockSource) UniformFloat64(l, h float64) float64  { return 0 }
+func (s *numpyMockSource) Float64() float64                    { return 0 }
+func (s *numpyMockSource) NormFloat64() float64                { return 0 }
+func (s *numpyMockSource) Perm(n int) []int                    { return nil }
+func (s *numpyMockSource) UniformFloat64(l, h float64) float64 { return 0 }

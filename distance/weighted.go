@@ -5,7 +5,7 @@ import "math"
 // StandardisedEuclidean computes the standardised Euclidean distance.
 // Params: "sigma" ([]float64) per-coordinate variance.
 // Corresponds to distances.py standardised_euclidean().
-func StandardisedEuclidean(x, y []float64, params map[string]interface{}) float64 {
+func StandardisedEuclidean(x, y []float64, params map[string]any) float64 {
 	sigma := getFloat64Slice(params, "sigma")
 	var sum float64
 	for i := range x {
@@ -22,7 +22,7 @@ func StandardisedEuclidean(x, y []float64, params map[string]interface{}) float6
 // WeightedMinkowski computes the weighted Minkowski distance.
 // Params: "w" ([]float64) per-coordinate weights, "p" (float64, default 2).
 // Corresponds to distances.py weighted_minkowski().
-func WeightedMinkowski(x, y []float64, params map[string]interface{}) float64 {
+func WeightedMinkowski(x, y []float64, params map[string]any) float64 {
 	w := getFloat64Slice(params, "w")
 	p := 2.0
 	if v, ok := params["p"]; ok {
@@ -42,7 +42,7 @@ func WeightedMinkowski(x, y []float64, params map[string]interface{}) float64 {
 // Mahalanobis computes the Mahalanobis distance.
 // Params: "vinv" ([][]float64) inverse covariance matrix.
 // Corresponds to distances.py mahalanobis().
-func Mahalanobis(x, y []float64, params map[string]interface{}) float64 {
+func Mahalanobis(x, y []float64, params map[string]any) float64 {
 	vinv := getFloat64Matrix(params, "vinv")
 	n := len(x)
 	diff := make([]float64, n)
@@ -91,7 +91,7 @@ func MahalanobisGrad(x, y []float64) (float64, []float64) {
 	return dist, grad
 }
 
-func getFloat64Slice(params map[string]interface{}, key string) []float64 {
+func getFloat64Slice(params map[string]any, key string) []float64 {
 	if params == nil {
 		return nil
 	}
@@ -105,7 +105,7 @@ func getFloat64Slice(params map[string]interface{}, key string) []float64 {
 	return nil
 }
 
-func getFloat64Matrix(params map[string]interface{}, key string) [][]float64 {
+func getFloat64Matrix(params map[string]any, key string) [][]float64 {
 	if params == nil {
 		return nil
 	}

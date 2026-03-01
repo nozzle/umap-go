@@ -75,7 +75,7 @@ func HellingerGrad(x, y []float64) (float64, []float64) {
 // SymmetricKL computes the symmetric KL divergence.
 // Params: "z" (float64, default 1e-11) smoothing constant.
 // Corresponds to distances.py symmetric_kl().
-func SymmetricKL(x, y []float64, params map[string]interface{}) float64 {
+func SymmetricKL(x, y []float64, params map[string]any) float64 {
 	z := 1e-11
 	if v, ok := params["z"]; ok {
 		z = v.(float64)
@@ -108,7 +108,7 @@ func SymmetricKL(x, y []float64, params map[string]interface{}) float64 {
 
 // LLDirichlet computes the log-likelihood Dirichlet distance.
 // Corresponds to distances.py ll_dirichlet().
-func LLDirichlet(x, y []float64, params map[string]interface{}) float64 {
+func LLDirichlet(x, y []float64, params map[string]any) float64 {
 	n1 := 0.0
 	n2 := 0.0
 	for _, v := range x {

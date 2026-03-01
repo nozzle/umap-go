@@ -207,7 +207,7 @@ func FuzzySimplicialSet(
 	nNeighbors int,
 	rng umaprand.Source,
 	metric string,
-	metricKwds map[string]interface{},
+	metricKwds map[string]any,
 	localConnectivity float64,
 	setOpMixRatio float64,
 ) *FuzzySimplicialSetResult {

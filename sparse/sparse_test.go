@@ -92,7 +92,7 @@ func TestFuzzySetUnion(t *testing.T) {
 	result := sparse.FuzzySetUnion(graph, graphT, 1.0)
 
 	// The result should be symmetric
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		for j := i + 1; j < 3; j++ {
 			vij := result.At(i, j)
 			vji := result.At(j, i)
@@ -155,7 +155,7 @@ func TestResetLocalConnectivity(t *testing.T) {
 	result := sparse.ResetLocalConnectivity(graph)
 
 	// After reset, each row's max should be 1.0
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		maxVal := 0.0
 		for idx := result.Indptr[i]; idx < result.Indptr[i+1]; idx++ {
 			if result.Data[idx] > maxVal {

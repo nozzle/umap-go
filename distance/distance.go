@@ -10,14 +10,14 @@ package distance
 type Func func(x, y []float64) float64
 
 // FuncWithParam computes distance with additional parameters.
-type FuncWithParam func(x, y []float64, params map[string]interface{}) float64
+type FuncWithParam func(x, y []float64, params map[string]any) float64
 
 // GradFunc computes distance and its gradient with respect to x.
 // Returns (distance, gradient).
 type GradFunc func(x, y []float64) (float64, []float64)
 
 // GradFuncWithParam computes distance and gradient with additional parameters.
-type GradFuncWithParam func(x, y []float64, params map[string]interface{}) (float64, []float64)
+type GradFuncWithParam func(x, y []float64, params map[string]any) (float64, []float64)
 
 // SparseFunc computes distance between two sparse vectors represented as
 // sorted index arrays and corresponding data arrays.

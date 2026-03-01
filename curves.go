@@ -53,7 +53,7 @@ func FindABParams(spread, minDist float64) (float64, float64) {
 
 	prevCost := lmCost(xv, yv, a, b)
 
-	for iter := 0; iter < maxIter; iter++ {
+	for range maxIter {
 		// Compute Jacobian^T * residuals and Jacobian^T * Jacobian (2x2 system)
 		var j11, j12, j22 float64 // J^T J entries
 		var g1, g2 float64        // J^T r (gradient)

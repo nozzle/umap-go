@@ -12,20 +12,19 @@ import (
 
 func generateTestData(n, dim int, rng umaprand.Source) [][]float64 {
 	data := make([][]float64, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		data[i] = make([]float64, dim)
-		for j := 0; j < dim; j++ {
+		for j := range dim {
 			data[i][j] = rng.Float64()
 		}
 	}
 	return data
 }
 
-
 func TestUMAP_TransformParity(t *testing.T) {
 	s0 := uint64(42)
 	rng := umaprand.NewProduction(&s0)
-	
+
 	XTrain := generateTestData(100, 4, rng)
 	XTest := generateTestData(20, 4, rng)
 

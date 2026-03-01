@@ -20,7 +20,7 @@ func testdataDir() string {
 // loadJSON reads a JSON file from testdata/ and unmarshals it into v.
 // Handles Python-generated JSON that may contain Infinity, -Infinity, and NaN
 // (produced by json.dump with allow_nan=True).
-func loadJSON(t *testing.T, relPath string, v interface{}) {
+func loadJSON(t *testing.T, relPath string, v any) {
 	t.Helper()
 	path := filepath.Join(testdataDir(), relPath)
 	data, err := os.ReadFile(path)

@@ -54,7 +54,7 @@ func TestSpectralLayoutSubspace(t *testing.T) {
 	goDistances := make([]float64, 0, n*(n-1)/2)
 	pyDistances := make([]float64, 0, n*(n-1)/2)
 
-	for i := 0; i < n; i++ {
+	for i := range n {
 		for j := i + 1; j < n; j++ {
 			goDist := 0.0
 			pyDist := 0.0
@@ -86,8 +86,8 @@ func TestSpectralLayoutDisconnected(t *testing.T) {
 	coo := sparse.NewCOO(n, n)
 
 	// Two separate cliques: 0-9 and 10-19
-	for i := 0; i < 10; i++ {
-		for j := 0; j < 10; j++ {
+	for i := range 10 {
+		for j := range 10 {
 			if i != j {
 				coo.Set(i, j, 1.0)
 			}
@@ -114,7 +114,7 @@ func TestSpectralLayoutDisconnected(t *testing.T) {
 	meanInter := 0.0
 	countInter := 0
 
-	for i := 0; i < n; i++ {
+	for i := range n {
 		for j := i + 1; j < n; j++ {
 			d := 0.0
 			for k := range embedding[i] {

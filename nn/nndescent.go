@@ -1,9 +1,9 @@
 package nn
 
 import (
-	"math"
 	"github.com/nozzle/umap-go/distance"
 	umaprand "github.com/nozzle/umap-go/rand"
+	"math"
 )
 
 // NNDescentConfig holds the configuration for NN-Descent.
@@ -43,10 +43,7 @@ func NNDescent(data [][]float64, distFunc distance.Func, cfg NNDescentConfig) *N
 		cfg.K = 15
 	}
 	if cfg.MaxCandidates <= 0 {
-		cfg.MaxCandidates = cfg.K
-		if cfg.MaxCandidates > 60 {
-			cfg.MaxCandidates = 60
-		}
+		cfg.MaxCandidates = min(cfg.K, 60)
 	}
 	if cfg.NIters <= 0 {
 		cfg.NIters = maxInt(5, int(math.Round(math.Log2(float64(n)))))
@@ -64,7 +61,7 @@ func NNDescent(data [][]float64, distFunc distance.Func, cfg NNDescentConfig) *N
 	// Step 1: Initialize RNG states
 	rngState := makeTauRandState(cfg.Rng)
 	searchRngState := makeTauRandState(cfg.Rng)
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		_ = TauRandInt(&searchRngState)
 	}
 
@@ -81,7 +78,7 @@ func NNDescent(data [][]float64, distFunc distance.Func, cfg NNDescentConfig) *N
 	} else {
 		heap = NewHeap(n, cfg.K)
 	}
-	
+
 	// Fill any remaining spots with random candidates
 	heap = InitFromRandom(heap, n, cfg.K, distFunc, data, &rngState)
 
@@ -200,13 +197,10 @@ func NearestNeighbors(data [][]float64, k int, distFunc distance.Func, rng umapr
 		Angular: angular,
 	}
 	result := NNDescent(data, distFunc, cfg)
-	
+
 	// Create hub tree for search index
 	searchRngState := makeTauRandState(rng)
-	searchLeafSize := cfg.K
-	if searchLeafSize < 30 {
-		searchLeafSize = 30
-	}
+	searchLeafSize := max(cfg.K, 30)
 	hubTree := MakeHubTree(data, result.Indices, searchLeafSize, &searchRngState, angular, 200)
 	searchForest := RPForest{hubTree}
 
@@ -241,7 +235,7 @@ func ilog2(n int) int {
 
 func defaultNTrees(n int) int {
 	// Matches UMAP default: min(64, 5 + int(round((n^0.5)/20.0)))
-	import_math := 5 + int(0.5 + sqrt(float64(n))/20.0)
+	import_math := 5 + int(0.5+sqrt(float64(n))/20.0)
 	if import_math > 64 {
 		return 64
 	}
@@ -261,7 +255,7 @@ func sqrt(x float64) float64 {
 	}
 	// Newton's method
 	z := x / 2
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		z2 := (z + x/z) / 2
 		if z2 == z {
 			break
@@ -276,7 +270,7 @@ func makeTauRandState(rng umaprand.Source) TauRandState {
 		return TauRandState{42, 13, 7}
 	}
 	var state TauRandState
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		// Python randint(-2147483647, 2147483646) draws from a range of 4294967293
 		state[i] = int64(rng.Intn(4294967293) - 2147483647)
 	}

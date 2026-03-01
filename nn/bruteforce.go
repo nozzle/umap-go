@@ -139,22 +139,22 @@ func InitFromRandom(h *Heap, n, k int, distFunc distance.Func, data [][]float64,
 	}
 
 	for i := range n {
-		// In Python: if heap[0][i, 0] < 0.0: 
-		// Python's heap is a max-heap where element 0 is the max distance. 
+		// In Python: if heap[0][i, 0] < 0.0:
+		// Python's heap is a max-heap where element 0 is the max distance.
 		// If it's negative, it means the heap has not been filled up to k elements yet.
 		// (pynndescent initializes empty heap with distance -1.0)
 		// We can just check if the max element distance is math.Inf(1) or if any element is -1.
-		
+
 		// Count how many valid elements we have
 		validCount := 0
-		for j := 0; j < k; j++ {
+		for j := range k {
 			if h.Indices[i][j] >= 0 {
 				validCount++
 			}
 		}
-		
+
 		if validCount < k {
-			for j := 0; j < k - validCount; j++ {
+			for j := 0; j < k-validCount; j++ {
 				idx := TauRandIntRange(rngState, n)
 				d := distFunc(data[idx], data[i])
 				h.Push(i, idx, d, true)
@@ -170,7 +170,7 @@ func InitFromRandom(h *Heap, n, k int, distFunc distance.Func, data [][]float64,
 func BruteForceKNNQuery(trainData [][]float64, queryData [][]float64, k int, distFunc distance.Func) ([][]int, [][]float64) {
 	nTrain := len(trainData)
 	nQuery := len(queryData)
-	
+
 	if k > nTrain {
 		k = nTrain
 	}

@@ -89,7 +89,7 @@ func ChebyshevGrad(x, y []float64) (float64, []float64) {
 // Minkowski computes the Minkowski distance with parameter p.
 // Params: "p" (float64, default 2).
 // Corresponds to distances.py minkowski().
-func Minkowski(x, y []float64, params map[string]interface{}) float64 {
+func Minkowski(x, y []float64, params map[string]any) float64 {
 	p := 2.0
 	if v, ok := params["p"]; ok {
 		p = v.(float64)

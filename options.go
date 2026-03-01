@@ -8,7 +8,8 @@ import (
 	umaprand "github.com/nozzle/umap-go/rand"
 )
 
-func ptrUint64(v uint64) *uint64 { return &v }
+//go:fix inline
+func ptrUint64(v uint64) *uint64 { return new(v) }
 
 // Options configures the UMAP algorithm.
 type Options struct {
@@ -37,7 +38,7 @@ type Options struct {
 
 	// MetricKwds are additional parameters for parameterized metrics
 	// (e.g., "p" for Minkowski, "sigma" for StandardisedEuclidean).
-	MetricKwds map[string]interface{}
+	MetricKwds map[string]any
 
 	// NEpochs is the number of SGD optimization epochs.
 	// If 0, automatically chosen based on dataset size.

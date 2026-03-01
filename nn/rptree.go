@@ -40,7 +40,7 @@ type RPForest []*FlatTree
 func MakeForest(data [][]float64, nTrees int, leafSize int, rng umaprand.Source, angular bool) RPForest {
 	n := len(data)
 	forest := make(RPForest, nTrees)
-	
+
 	// Generate rng states for each tree
 	treeRngStates := make([]TauRandState, nTrees)
 	for t := range nTrees {
@@ -237,7 +237,7 @@ func InitFromForest(forest RPForest, data [][]float64, k int, distFunc distance.
 
 	leaves := GetLeafArray(forest)
 	for _, leaf := range leaves {
-		for i := 0; i < len(leaf); i++ {
+		for i := range leaf {
 			for j := i + 1; j < len(leaf); j++ {
 				a, b := leaf[i], leaf[j]
 				d := distFunc(data[a], data[b])

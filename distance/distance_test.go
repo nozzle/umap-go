@@ -84,8 +84,8 @@ func getMetricsInDir(t *testing.T, dir string) []string {
 	}
 	var metrics []string
 	for _, f := range files {
-		if strings.HasSuffix(f.Name(), ".json") {
-			metrics = append(metrics, strings.TrimSuffix(f.Name(), ".json"))
+		if before, ok := strings.CutSuffix(f.Name(), ".json"); ok {
+			metrics = append(metrics, before)
 		}
 	}
 	return metrics
@@ -116,8 +116,8 @@ func TestPairwiseDistances(t *testing.T) {
 			maxDiff := 0.0
 			mismatches := 0
 
-			for i := 0; i < n; i++ {
-				for j := 0; j < n; j++ {
+			for i := range n {
+				for j := range n {
 					got := distFunc(pd.X[i], pd.X[j])
 					want := pd.Distances[i][j]
 
@@ -167,8 +167,8 @@ func TestPairwiseGradients(t *testing.T) {
 			distMismatches := 0
 			gradMismatches := 0
 
-			for i := 0; i < n; i++ {
-				for j := 0; j < n; j++ {
+			for i := range n {
+				for j := range n {
 					gotDist, gotGrad := gradFunc(pd.X[i], pd.X[j])
 					wantDist := pd.Distances[i][j]
 					wantGrad := pd.Gradients[i][j]
@@ -244,8 +244,8 @@ func TestSparseDistances(t *testing.T) {
 			maxDiff := 0.0
 			mismatches := 0
 
-			for i := 0; i < n; i++ {
-				for j := 0; j < n; j++ {
+			for i := range n {
+				for j := range n {
 					start1, end1 := pd.XIndptr[i], pd.XIndptr[i+1]
 					ind1 := pd.XIndices[start1:end1]
 					data1 := pd.XData[start1:end1]
