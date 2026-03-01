@@ -1,6 +1,6 @@
 # umap-go
 
-`umap-go` is a pure-Go implementation of Uniform Manifold Approximation and Projection (UMAP). 
+`umap-go` is a pure-Go implementation of Uniform Manifold Approximation and Projection (UMAP).
 
 This project was built with a strict mandate: achieve **exact mathematical parity** with the reference Python `umap-learn` library (pinned to v0.5.11) and its underlying `pynndescent` neighbor search. It is designed to be highly accurate, reproducible, and dependency-free (pure Go, no CGO).
 
@@ -108,3 +108,16 @@ if err != nil {
 }
 _ = newEmbedding
 ```
+
+## License
+
+This project is licensed under the BSD 3-Clause License. See [LICENSE](./LICENSE).
+
+## Credits / Upstream Attribution
+
+This library is a pure-Go port built for mathematical parity with:
+
+- [`umap-learn` (v0.5.11)](https://github.com/lmcinnes/umap) — BSD 3-Clause
+- [`pynndescent`](https://github.com/lmcinnes/pynndescent) — BSD 2-Clause
+
+`umap-go` is an independent implementation and is not affiliated with or endorsed by the upstream projects.
